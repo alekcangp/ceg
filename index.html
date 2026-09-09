@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Contract Ecosystem Graph</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/styles.css" />
+  <meta property="og:image" content="https://bolt.new/static/og_default.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="https://bolt.new/static/og_default.png">
+</head>
+<body>
+  <div id="app">
+    <header class="hero">
+      <h1 class="title">CONTRACT ECOSYSTEM GRAPH</h1>
+      <p class="subtitle">Discover how a smart contract is used across the indexed Web3 ecosystem.</p>
+      <form id="search-form" class="search-form">
+        <input
+          id="address-input"
+          type="text"
+          class="address-input"
+          placeholder="0x contract address..."
+          autocomplete="off"
+          spellcheck="false"
+          aria-label="Smart contract address"
+        />
+        <button type="submit" class="analyze-btn" aria-label="Analyze contract">Analyze</button>
+      </form>
+    </header>
+
+    <section id="loading-section" class="loading-section hidden" aria-live="polite"></section>
+    <section id="error-section" class="error-section hidden" aria-live="assertive"></section>
+    <section id="results-section" class="results-section hidden">
+      <div id="graph-container" class="graph-container">
+        <svg id="ecosystem-graph" class="ecosystem-graph" role="img" aria-label="Ecosystem graph"></svg>
+        <div id="graph-tooltip" class="graph-tooltip hidden"></div>
+        <div id="graph-controls" class="graph-controls">
+          <button id="zoom-in" class="graph-btn" aria-label="Zoom in">+</button>
+          <button id="zoom-out" class="graph-btn" aria-label="Zoom out">−</button>
+          <button id="zoom-reset" class="graph-btn" aria-label="Reset view">⟲</button>
+        </div>
+      </div>
+      <div id="info-panel" class="info-panel hidden"></div>
+      <div id="ai-section" class="ai-section"></div>
+      <div id="sources-section" class="sources-section"></div>
+    </section>
+
+    <div id="empty-state" class="empty-state">
+      <p class="empty-hint">Enter a contract address to begin ecosystem discovery.</p>
+    </div>
+  </div>
+
+  <script type="module" src="/src/app.ts"></script>
+</body>
+</html>
