@@ -1,21 +1,7 @@
 import { parse as parseYaml } from "yaml";
 import type { SubgraphDiscovery, SubgraphAnalysis, DataSource, Entity, Field, ABIFunction } from "../../shared/types.js";
 
-const IPFS_GATEWAYS = (process.env.IPFS_GATEWAY_URL
-  ? [process.env.IPFS_GATEWAY_URL]
-  : [
-      // ipfs.thegraph.com is the most reliable (same infra as discovery),
-      // filebase.io reliably mirrors these CIDs; the rest are fallbacks.
-      "https://ipfs.thegraph.com/ipfs",
-      "https://ipfs.filebase.io/ipfs",
-      "https://gateway.pinata.cloud/ipfs",
-      "https://nftstorage.link/ipfs",
-      "https://w3s.link/ipfs",
-      "https://cloudflare-ipfs.com/ipfs",
-      "https://gateway.ipfs.io/ipfs",
-      "https://ipfs.io/ipfs",
-    ]
-).map((g) => g.replace(/\/$/, ""));
+const IPFS_GATEWAY = (process.env.IPFS_GATEWAY_URL || "https://ipfs.thegraph.com/ipfs").replace(/\/$/, "");
 const cache = new Map<string, string>();
 
 /**
@@ -106,20 +92,35 @@ interface ParsedManifest {
 async function fetchFromIPFS(hash: string): Promise<string> {
   if (cache.has(hash)) return cache.get(hash)!;
 
-  let lastErr: unknown = null;
-  for (const gw of IPFS_GATEWAYS) {
+  const errors: string[] = [];
+  // Один шлюз (ipfs.thegraph.com) + ретраи 429/5xx с экспоненциальным backoff.
+  // Публичный шлюз троттлит параллельные запросы — конкурентность ограничена
+  // в вызывающем коде (mapWithConcurrency в api/analyze.ts).
+  for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      const resp = await fetch(`${gw}/${hash}`, { signal: AbortSignal.timeout(8000) });
-      if (!resp.ok) throw new Error(`IPFS fetch failed: ${resp.status}`);
+      const resp = await fetch(`${IPFS_GATEWAY}/${hash}`, { signal: AbortSignal.timeout(8000) });
+      if (resp.status === 429 || resp.status >= 500) {
+        errors.push(`${resp.status} (attempt ${attempt + 1})`);
+        await sleep(800 * 2 ** attempt + Math.random() * 400);
+        continue;
+      }
+      if (!resp.ok) break; // 4xx кроме 429 — CID на шлюзе точно нет
       const text = await resp.text();
       if (text.length > 500_000) throw new Error("Response too large");
       cache.set(hash, text);
       return text;
     } catch (err) {
-      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      // Abort/timeout тоже ретраим
+      errors.push(`${msg} (attempt ${attempt + 1})`);
+      await sleep(800 * 2 ** attempt + Math.random() * 400);
     }
   }
-  throw lastErr instanceof Error ? lastErr : new Error("IPFS fetch failed");
+  throw new Error(`IPFS fetch failed: ${errors.join("; ") || hash}`);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 /**
@@ -263,9 +264,12 @@ function parseSchema(schemaText: string, manifestEntities: string[]): Entity[] {
     const typeName = match[3];
     const body = match[4];
 
-    // Only include if this entity is in the manifest's entity list
-    // (or if manifest has no entities, include all)
-    if (manifestEntities.length > 0 && !manifestEntities.includes(typeName)) continue;
+    // Only include entities that the manifest's dataSources (already filtered
+    // by the queried contract address) actually write to. When the entity list
+    // is empty, it means "no dataSources relevant to this contract" — so keep
+    // nothing. (Previously an empty list fell through to "include ALL schema
+    // entities", which polluted the graph with unrelated entities.)
+    if (!manifestEntities.includes(typeName)) continue;
 
     const desc = (match[1] || match[2] || "").trim() || undefined;
     const fields = parseFields(body);

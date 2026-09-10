@@ -1,5 +1,6 @@
 import type { AnalysisResult, EcosystemNode, ProgressStep } from "../shared/types.js";
 import { GraphRenderer } from "./graph/renderer.js";
+import { extractProtocols } from "../src/normalization/normalization.js";
 
 const LOADING_MESSAGES = [
   "Interrogating the blockchain...",
@@ -14,8 +15,6 @@ const EMPTY_MESSAGES = [
   "No ecosystem drama detected.",
   "This contract appears to be living a quiet life.",
 ];
-
-const MANY_CONNECTIONS_MSG = "Okay... this contract knows a lot of people.";
 
 let renderer: GraphRenderer | null = null;
 
@@ -177,25 +176,6 @@ function showResults(result: AnalysisResult) {
 
   // Sources
   renderSources(result);
-
-  // Show a notice only when one of the top picked subgraphs genuinely failed.
-  if (result.stats.failed > 0 && result.subgraphs.length > 0) {
-    const notice = document.createElement("div");
-    notice.className = "loading-message";
-    notice.style.color = "var(--amber)";
-    notice.style.marginBottom = "16px";
-    notice.textContent = `${result.stats.analyzed} of ${result.stats.analyzed + result.stats.failed} top subgraphs were fully processed. ${result.stats.failed} subgraph${result.stats.failed === 1 ? "" : "s"} could not be fully analyzed, so partial data is shown.`;
-    section.insertBefore(notice, document.getElementById("ai-section"));
-  }
-
-  // Many connections humor
-  if (result.nodes.length > 20) {
-    const humor = document.createElement("div");
-    humor.className = "loading-message";
-    humor.textContent = MANY_CONNECTIONS_MSG;
-    humor.style.marginBottom = "16px";
-    section.insertBefore(humor, document.getElementById("ai-section"));
-  }
 }
 
 function renderStats(result: AnalysisResult) {
@@ -233,20 +213,18 @@ function renderOverview(result: AnalysisResult) {
   box.innerHTML = "";
 
   const networks = [...new Set(result.subgraphs.map((s) => s.discovery.network).filter((v): v is string => Boolean(v)))];
-  const protocols = [
-    ...new Set(
-      result.subgraphs
-        .flatMap((s) => s.manifest?.dataSources ?? [])
-        .map((d) => d.abi || d.name)
-        .filter((v): v is string => Boolean(v))
-    ),
-  ];
+  // Prefer AI-identified protocols (grounded in dataSource/subgraph names);
+  // fall back to the deterministic non-generic ABI filter when AI is absent.
+  const aiProtocols = result.aiAnalysis?.protocols ?? [];
+  const protocolItems: { label: string; title?: string }[] = aiProtocols.length
+    ? aiProtocols.map((p) => ({ label: p.name, title: p.evidence })).filter((p) => p.label)
+    : extractProtocols(result.subgraphs).map((label) => ({ label }));
   const keyRoles = (result.aiAnalysis?.roles ?? []).map((r) => r.role).filter((v): v is string => Boolean(v));
-  if (networks.length || protocols.length || keyRoles.length) {
+  if (networks.length || protocolItems.length || keyRoles.length) {
     const grid = document.createElement("div");
     grid.className = "overview-grid";
 
-    const row = (label: string, emoji: string, items: string[], color: string) => {
+    const row = (label: string, emoji: string, items: (string | { label: string; title?: string })[], color: string) => {
       if (!items.length) return;
       const cell = document.createElement("div");
       cell.className = "overview-cell";
@@ -261,7 +239,11 @@ function renderOverview(result: AnalysisResult) {
         c.className = "overview-chip";
         c.style.borderColor = color;
         c.style.color = color === "var(--cyan)" ? "var(--cyan)" : color;
-        c.textContent = item;
+        if (typeof item === "string") c.textContent = item;
+        else {
+          c.textContent = item.label;
+          if (item.title) c.title = item.title;
+        }
         chips.appendChild(c);
       }
       cell.appendChild(chips);
@@ -269,7 +251,7 @@ function renderOverview(result: AnalysisResult) {
     };
 
     row("Networks", "🌐", networks, "var(--cyan)");
-    row("Protocols", "🧩", protocols, "var(--purple)");
+    row("Protocols", "🧩", protocolItems, "var(--purple)");
     row("Key Roles", "🏷️", keyRoles, "var(--green)");
 
     box.appendChild(grid);

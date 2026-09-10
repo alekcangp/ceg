@@ -5,6 +5,7 @@
 import { discoverSubgraphs, rankSubgraphs } from "../src/discovery/discovery.js";
 import { buildAIContext, buildPrompt, parseAIResponse } from "../src/ai/ai.js";
 import { buildGraph } from "../src/graph/builder.js";
+import { extractProtocols } from "../src/normalization/normalization.js";
 import type { SubgraphAnalysis, SubgraphDiscovery } from "../shared/types.js";
 
 let failures = 0;
@@ -56,6 +57,51 @@ const check = (name: string, cond: boolean, extra?: unknown) => {
   const emptyCtx = buildAIContext({ address: "0xabc" }, [{ discovery: { id: "x", name: "x" }, errors: [] } as SubgraphAnalysis]);
   const emptyPrompt = buildPrompt(emptyCtx);
   check("prompt: пустой контекст не падает", typeof emptyPrompt === "string" && emptyPrompt.length > 0);
+}
+
+// --- 2b. extractProtocols: generic token/ERC ABI aliases не считаются протоколами
+{
+  const sg: SubgraphAnalysis = {
+    discovery: { id: "x", name: "x" },
+    manifest: {
+      dataSources: [
+        { name: "USDT", abi: "TetherToken" },
+        { name: "Token", abi: "ERC20" },
+        { name: "BEP20USDT" },
+        { name: "Pool", abi: "ClipperPool" },
+      ],
+      entities: [],
+      eventHandlers: [],
+    },
+    errors: [],
+  };
+  const p = extractProtocols([sg]);
+  check("protocols: generic ABI (Token/ERC20/TetherToken/BEP20USDT) отфильтрованы", p.length === 1 && p[0] === "ClipperPool", p);
+  // AI protocols: парсинг + правило "belongs vs used by" в промпте
+  const protoRaw = JSON.stringify({
+    roles: [],
+    protocols: [
+      { name: "Hop Protocol", confidence: "high", evidence: "subgraph Hop Protocol, dataSource: TokenUSDT" },
+      { name: "", confidence: "low" },
+    ],
+    concepts: [],
+  });
+  const protoParsed = parseAIResponse(protoRaw);
+  check(
+    "protocols: AI-парсинг c evidence, пустые отброшены",
+    protoParsed?.protocols?.length === 1 && protoParsed.protocols[0].name === "Hop Protocol" && protoParsed.protocols[0].evidence === "subgraph Hop Protocol, dataSource: TokenUSDT",
+    protoParsed?.protocols,
+  );
+  const protoPrompt = buildPrompt(buildAIContext({ address: "0xabc" }, []));
+  check(
+    "protocols: промпт требует named protocols (belongs + used by)",
+    protoPrompt.includes('"protocols"') && protoPrompt.includes("IS USED BY"),
+    protoPrompt.slice(protoPrompt.indexOf("9."), protoPrompt.indexOf("9.") + 200),
+  );
+  check(
+    "risks: промпт требует FINE-PRINT SCAN с именами функций",
+    protoPrompt.includes("FINE-PRINT SCAN") && protoPrompt.includes("destroyBlackFunds") && protoPrompt.includes("BY NAME"),
+  );
 }
 
 // --- 3. buildGraph: все сущности, дедуп по id

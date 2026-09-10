@@ -1,15 +1,40 @@
 import type { AnalysisResult, Contract, SubgraphAnalysis, AIAnalysis } from "../shared/types.js";
 import { discoverSubgraphs, rankSubgraphs } from "../src/discovery/discovery.js";
 import { analyzeSubgraph } from "../src/manifest/manifest.js";
-import { deduplicateConcepts } from "../src/normalization/normalization.js";
+import { deduplicateConcepts, extractProtocols } from "../src/normalization/normalization.js";
 import { buildAIContext, callCloudflareAI, debugPrompt } from "../src/ai/ai.js";
 import { fetchABIFunctions } from "../src/manifest/manifest.js";
 import { fetchExplorerABI } from "../src/ai/explorer.js";
 import { buildGraph } from "../src/graph/builder.js";
-import { TOP_SUBGRAPHS } from "../src/config.js";
 import type { VercelRequest, VercelResponse } from "./vercel-types.js";
 
 export const config = { maxDuration: 60 };
+
+/**
+ * Promise.allSettled with a concurrency limit: at most `limit` tasks in
+ * flight at once. Results keep input order, same shape as allSettled.
+ */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<PromiseSettledResult<R>[]> {
+  const results: PromiseSettledResult<R>[] = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) break;
+      try {
+        results[i] = { status: "fulfilled", value: await fn(items[i], i) };
+      } catch (reason) {
+        results[i] = { status: "rejected", reason };
+      }
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "OPTIONS") {
@@ -56,12 +81,14 @@ async function runAnalysis(address: string): Promise<AnalysisResult> {
     return emptyResult(contract);
   }
 
-  // Step 2: Rank and select top N, analyze all in parallel
-  const top = rankSubgraphs(discovered).slice(0, TOP_SUBGRAPHS);
+  // Step 2: Rank (all unique candidates: top N by signal + top N by query fees)
+  // and analyze all of them with limited concurrency (public IPFS gateways
+  // throttle parallel fetches — 10 concurrent schema fetches = instant 429s).
+  const top = rankSubgraphs(discovered);
   log("discover:done", { found: discovered.length, analyzing: top.length });
   log("subgraph:top", top.map((s) => ({ id: s.id, name: s.name, network: s.network, ipfsHash: s.ipfsHash })));
 
-  const settled = await Promise.allSettled(top.map((sg) => analyzeSubgraph(sg, address)));
+  const settled = await mapWithConcurrency(top, 3, (sg) => analyzeSubgraph(sg, address));
   const successful: SubgraphAnalysis[] = [];
   const errors: string[] = [];
   let failedSubgraphs = 0;
@@ -73,10 +100,23 @@ async function runAnalysis(address: string): Promise<AnalysisResult> {
       errors.push(`Failed to analyze subgraph ${top[i]?.name}`);
     }
   });
-  if (successful.length === 0) {
+
+  // Drop subgraphs whose manifest parsed fine but contains no dataSources
+  // targeting the contract (the address can still appear in the manifest text
+  // via templates/context/comments — such subgraphs don't index the contract).
+  const relevant = successful.filter((a) => !a.manifest || a.manifest.dataSources.length > 0);
+  const filteredOut = successful.length - relevant.length;
+  if (filteredOut > 0) {
+    log("manifest:filtered-out", {
+      count: filteredOut,
+      names: successful.filter((a) => a.manifest && a.manifest.dataSources.length === 0).map((a) => a.discovery.name),
+    });
+  }
+  const analyzedList = relevant;
+  if (analyzedList.length === 0) {
     return emptyResult(contract, discovered.length, errors.length ? errors : ["All top subgraphs failed to analyze"]);
   }
-  log("manifest:done", successful.map((a) => ({
+  log("manifest:done", analyzedList.map((a) => ({
     name: a.discovery.name,
     dataSources: a.manifest?.dataSources.length ?? 0,
     events: a.manifest?.eventHandlers.length ?? 0,
@@ -84,14 +124,14 @@ async function runAnalysis(address: string): Promise<AnalysisResult> {
     schemaHash: a.schemaHash,
     errors: a.errors,
   })));
-  for (const a of successful) errors.push(...a.errors);
+  for (const a of analyzedList) errors.push(...a.errors);
 
   // Step 4: Deduplicate and build semantic layer
-  const concepts = deduplicateConcepts(successful);
+  const concepts = deduplicateConcepts(analyzedList);
   log("concepts:done", { count: concepts.length });
 
   // Step 5: Build AI context (incl. merged/common ABI) and call AI
-  const manifestAbis = successful.flatMap((a) => a.abis ?? []);
+  const manifestAbis = analyzedList.flatMap((a) => a.abis ?? []);
   log("abi:fetch:start", { manifestAbis: manifestAbis.length });
   let abiFunctions = await fetchABIFunctions(manifestAbis);
   log("abi:manifest:done", { count: abiFunctions.length });
@@ -105,7 +145,7 @@ async function runAnalysis(address: string): Promise<AnalysisResult> {
   }
   log("abi:done", { count: abiFunctions.length });
 
-  const aiContext = buildAIContext(contract, successful, abiFunctions);
+  const aiContext = buildAIContext(contract, analyzedList, abiFunctions);
   const prompt = debugPrompt(aiContext);
   log("ai:prompt", { chars: prompt.length });
   console.log("[analyze] AI prompt >>>\n" + prompt + "\n<<< AI prompt");
@@ -123,12 +163,12 @@ async function runAnalysis(address: string): Promise<AnalysisResult> {
   log("ai:done", { hasSummary: Boolean(aiAnalysis?.bottomLine || aiAnalysis?.whatIsIt), aiError });
 
   // Step 6: Build graph
-  const { nodes, edges } = buildGraph(contract, successful, concepts, aiAnalysis);
+  const { nodes, edges } = buildGraph(contract, analyzedList, concepts, aiAnalysis);
   log("graph:done", { nodes: nodes.length, edges: edges.length });
 
   return {
     contract,
-    subgraphs: successful.map(stripDiscovery).map((a) => ({
+    subgraphs: analyzedList.map(stripDiscovery).map((a) => ({
       ...a,
       manifest: a.manifest
         ? {
@@ -160,17 +200,17 @@ async function runAnalysis(address: string): Promise<AnalysisResult> {
     errors,
     stats: {
       totalDiscovered: discovered.length,
-      analyzed: successful.length,
+      analyzed: analyzedList.length,
       failed: failedSubgraphs,
-      ...buildStats(successful),
+      filteredOut,
+      ...buildStats(analyzedList, aiAnalysis),
     },
   };
 }
 
-/** Graph statistics: subgraphs, entities, networks, protocols (distinct datasource abis). */
-function buildStats(analyses: SubgraphAnalysis[]) {
+/** Graph statistics: subgraphs, entities, networks, protocols (non-generic dataSources). */
+function buildStats(analyses: SubgraphAnalysis[], aiAnalysis?: AIAnalysis) {
   const networks = new Set<string>();
-  const protocols = new Set<string>();
   let entities = 0;
   for (const a of analyses) {
     if (a.discovery.network) networks.add(a.discovery.network);
@@ -178,15 +218,14 @@ function buildStats(analyses: SubgraphAnalysis[]) {
     // back to the manifest-declared entity names (schema IPFS fetch can fail).
     const schemaCount = a.schema?.entities?.length ?? 0;
     entities += schemaCount > 0 ? schemaCount : (a.manifest?.entities?.length ?? 0);
-    for (const d of a.manifest?.dataSources || []) {
-      if (d.abi) protocols.add(d.abi);
-    }
   }
   return {
     subgraphs: analyses.length,
     entities,
     networks: networks.size,
-    protocols: protocols.size,
+    // Prefer AI-identified protocols (grounded in dataSource/subgraph names);
+    // fall back to the deterministic non-generic ABI filter when AI is absent.
+    protocols: aiAnalysis?.protocols?.length ?? extractProtocols(analyses).length,
   };
 }
 
@@ -204,6 +243,6 @@ function emptyResult(contract: Contract, totalDiscovered = 0, errors: string[] =
     nodes: [{ id: contract.address, type: "contract", label: contract.address.slice(0, 8) + "…" }],
     edges: [],
     errors,
-    stats: { totalDiscovered, analyzed: 0, failed: errors.length, subgraphs: 0, entities: 0, networks: 0, protocols: 0 },
+    stats: { totalDiscovered, analyzed: 0, failed: errors.length, filteredOut: 0, subgraphs: 0, entities: 0, networks: 0, protocols: 0 },
   };
 }
