@@ -1,6 +1,5 @@
 import type { AnalysisResult, EcosystemNode, ProgressStep } from "../shared/types.js";
 import { GraphRenderer } from "./graph/renderer.js";
-import { extractProtocols } from "../src/normalization/normalization.js";
 
 const LOADING_MESSAGES = [
   "Interrogating the blockchain...",
@@ -46,6 +45,44 @@ document.addEventListener("DOMContentLoaded", () => {
     analyze(urlAddr);
   }
 });
+
+/** Build an `.info-section` row with a label and plain-text value (XSS-safe). */
+function infoRow(label: string, value: string, mono = false): HTMLDivElement {
+  const div = document.createElement("div");
+  div.className = "info-section";
+  const l = document.createElement("div");
+  l.className = "info-label";
+  l.textContent = label;
+  const v = document.createElement("div");
+  v.className = "info-value";
+  v.textContent = value;
+  if (mono) {
+    v.style.fontFamily = "var(--mono)";
+    v.style.fontSize = "0.8rem";
+  }
+  div.appendChild(l);
+  div.appendChild(v);
+  return div;
+}
+
+function infoLabel(label: string): HTMLDivElement {
+  const div = document.createElement("div");
+  div.className = "info-section";
+  const l = document.createElement("div");
+  l.className = "info-label";
+  l.textContent = label;
+  div.appendChild(l);
+  return div;
+}
+
+let loadingTimer: number | null = null;
+
+function stopLoadingAnimation() {
+  if (loadingTimer !== null) {
+    clearInterval(loadingTimer);
+    loadingTimer = null;
+  }
+}
 
 let currentResult: AnalysisResult | null = null;
 
@@ -118,7 +155,11 @@ function showLoading() {
     const div = document.createElement("div");
     div.className = "progress-step";
     div.id = `step-${step.id}`;
-    div.innerHTML = `<span class="step-icon">○</span> ${step.label}`;
+    const icon = document.createElement("span");
+    icon.className = "step-icon";
+    icon.textContent = "○";
+    div.appendChild(icon);
+    div.appendChild(document.createTextNode(` ${step.label}`));
     section.appendChild(div);
   }
 
@@ -130,9 +171,9 @@ function showLoading() {
 
   // Animate steps progressively
   let stepIdx = 0;
-  const interval = setInterval(() => {
+  loadingTimer = window.setInterval(() => {
     if (stepIdx >= steps.length) {
-      clearInterval(interval);
+      stopLoadingAnimation();
       return;
     }
     if (stepIdx > 0) {
@@ -156,6 +197,7 @@ function showLoading() {
 }
 
 function showResults(result: AnalysisResult) {
+  stopLoadingAnimation();
   document.getElementById("loading-section")?.classList.add("hidden");
   document.getElementById("empty-state")?.classList.add("hidden");
 
@@ -168,7 +210,7 @@ function showResults(result: AnalysisResult) {
   // Stats bar
   renderStats(result);
 
-  // Ecosystem overview: networks, protocols, roles by name
+  // Ecosystem overview: networks, roles by name
   renderOverview(result);
 
   // AI analysis
@@ -185,7 +227,6 @@ function renderStats(result: AnalysisResult) {
   const items: Array<[string, number]> = [
     ["Subgraphs", s.subgraphs],
     ["Entities", s.entities],
-    ["Protocols", s.protocols],
     ["Networks", s.networks],
   ];
   for (const [label, value] of items) {
@@ -204,8 +245,8 @@ function renderStats(result: AnalysisResult) {
 }
 
 /**
- * Show the actual NAMES of networks, protocols and roles (not just counts).
- * Networks/protocols are derived from the analyzed subgraphs; roles come from AI.
+ * Show the actual NAMES of networks and roles (not just counts).
+ * Networks are derived from the analyzed subgraphs; roles come from AI.
  */
 function renderOverview(result: AnalysisResult) {
   const box = document.getElementById("overview-section");
@@ -213,14 +254,8 @@ function renderOverview(result: AnalysisResult) {
   box.innerHTML = "";
 
   const networks = [...new Set(result.subgraphs.map((s) => s.discovery.network).filter((v): v is string => Boolean(v)))];
-  // Prefer AI-identified protocols (grounded in dataSource/subgraph names);
-  // fall back to the deterministic non-generic ABI filter when AI is absent.
-  const aiProtocols = result.aiAnalysis?.protocols ?? [];
-  const protocolItems: { label: string; title?: string }[] = aiProtocols.length
-    ? aiProtocols.map((p) => ({ label: p.name, title: p.evidence })).filter((p) => p.label)
-    : extractProtocols(result.subgraphs).map((label) => ({ label }));
   const keyRoles = (result.aiAnalysis?.roles ?? []).map((r) => r.role).filter((v): v is string => Boolean(v));
-  if (networks.length || protocolItems.length || keyRoles.length) {
+  if (networks.length || keyRoles.length) {
     const grid = document.createElement("div");
     grid.className = "overview-grid";
 
@@ -251,7 +286,6 @@ function renderOverview(result: AnalysisResult) {
     };
 
     row("Networks", "🌐", networks, "var(--cyan)");
-    row("Protocols", "🧩", protocolItems, "var(--purple)");
     row("Key Roles", "🏷️", keyRoles, "var(--green)");
 
     box.appendChild(grid);
@@ -270,7 +304,7 @@ function renderAI(result: AnalysisResult) {
   if (!result.aiAnalysis) {
     const fallback = document.createElement("p");
     fallback.className = "ai-summary ai-fallback";
-    fallback.innerHTML = `🤖 AI analysis wasn't able to complete right now. Showing deterministic results below.`;
+    fallback.textContent = "🤖 AI analysis wasn't able to complete right now. Showing deterministic results below.";
     section.appendChild(fallback);
     if (result.aiError) {
       const why = document.createElement("p");
@@ -330,9 +364,13 @@ function renderSources(result: AnalysisResult) {
   table.className = "sources-table";
 
   const thead = document.createElement("thead");
-  thead.innerHTML = `<tr>
-    <th>IPFS</th><th>Network</th><th>Description</th><th>Signal (GRT)</th><th>Query fees (GRT)</th>
-  </tr>`;
+  const thr = document.createElement("tr");
+  for (const h of ["IPFS", "Network", "Description", "Signal (GRT)", "Query fees (GRT)"]) {
+    const th = document.createElement("th");
+    th.textContent = h;
+    thr.appendChild(th);
+  }
+  thead.appendChild(thr);
   table.appendChild(thead);
 
   const tbody = document.createElement("tbody");
@@ -374,7 +412,10 @@ function showInfoPanel(node: EcosystemNode, result: AnalysisResult | null) {
 
   const header = document.createElement("div");
   header.className = "info-panel-header";
-  header.innerHTML = `<div class="info-panel-title">${node.label}</div>`;
+  const title = document.createElement("div");
+  title.className = "info-panel-title";
+  title.textContent = node.label;
+  header.appendChild(title);
   const closeBtn = document.createElement("button");
   closeBtn.className = "info-panel-close";
   closeBtn.textContent = "×";
@@ -386,23 +427,25 @@ function showInfoPanel(node: EcosystemNode, result: AnalysisResult | null) {
   const meta = node.metadata || {};
 
   if (node.type === "role" || node.type === "concept") {
-    const confDiv = document.createElement("div");
-    confDiv.className = "info-section";
-    confDiv.innerHTML = `<div class="info-label">Confidence</div><div class="info-value confidence-${meta.confidence}">${(meta.confidence as string)?.toUpperCase() || "UNKNOWN"}</div>`;
+    const conf = typeof meta.confidence === "string" ? meta.confidence : "UNKNOWN";
+    const confDiv = infoRow("Confidence", conf.toUpperCase());
+    confDiv.querySelector(".info-value")?.classList.add(`confidence-${conf}`);
     panel.appendChild(confDiv);
 
     // Find matching concept in results
     const concept = result?.concepts.find((c) => c.concept === node.label);
     if (concept && concept.evidence.length > 0) {
-      const evDiv = document.createElement("div");
-      evDiv.className = "info-section";
-      evDiv.innerHTML = `<div class="info-label">Evidence</div>`;
+      const evDiv = infoLabel("Evidence");
       const ul = document.createElement("ul");
       ul.className = "evidence-list";
       for (const e of concept.evidence.slice(0, 10)) {
         const li = document.createElement("li");
         li.className = "evidence-item";
-        li.innerHTML = `<span class="evidence-type">${e.type}</span> — ${e.source}: ${e.value}`;
+        const type = document.createElement("span");
+        type.className = "evidence-type";
+        type.textContent = e.type;
+        li.appendChild(type);
+        li.appendChild(document.createTextNode(` — ${e.source}: ${e.value}`));
         ul.appendChild(li);
       }
       evDiv.appendChild(ul);
@@ -411,79 +454,71 @@ function showInfoPanel(node: EcosystemNode, result: AnalysisResult | null) {
 
     const sources = meta.sources as string[] | undefined;
     if (sources) {
-      const srcDiv = document.createElement("div");
-      srcDiv.className = "info-section";
-      srcDiv.innerHTML = `<div class="info-label">Sources</div><div class="info-value">${sources.length} subgraphs</div>`;
-      panel.appendChild(srcDiv);
+      panel.appendChild(infoRow("Sources", `${sources.length} subgraphs`));
     }
   } else if (node.type === "subgraph") {
     if (meta.network) {
-      const netDiv = document.createElement("div");
-      netDiv.className = "info-section";
-      netDiv.innerHTML = `<div class="info-label">Network</div><div class="info-value">${meta.network}</div>`;
-      panel.appendChild(netDiv);
+      panel.appendChild(infoRow("Network", String(meta.network)));
     }
     if (meta.description) {
-      const descDiv = document.createElement("div");
-      descDiv.className = "info-section";
-      descDiv.innerHTML = `<div class="info-label">Description</div><div class="info-value">${String(meta.description).slice(0, 200)}</div>`;
-      panel.appendChild(descDiv);
+      panel.appendChild(infoRow("Description", String(meta.description).slice(0, 200)));
     }
     if (meta.repository) {
-      const repoDiv = document.createElement("div");
-      repoDiv.className = "info-section";
-      repoDiv.innerHTML = `<div class="info-label">Repository</div><div class="info-value"><a href="${meta.repository}" target="_blank" rel="noopener" style="color: var(--purple)">${meta.repository}</a></div>`;
+      const repoStr = String(meta.repository);
+      const repoDiv = infoLabel("Repository");
+      const v = document.createElement("div");
+      v.className = "info-value";
+      if (/^https?:\/\//i.test(repoStr)) {
+        const a = document.createElement("a");
+        a.href = repoStr;
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.style.color = "var(--purple)";
+        a.textContent = repoStr;
+        v.appendChild(a);
+      } else {
+        v.textContent = repoStr;
+      }
+      repoDiv.appendChild(v);
       panel.appendChild(repoDiv);
     }
     if (meta.queryCount !== undefined) {
-      const qcDiv = document.createElement("div");
-      qcDiv.className = "info-section";
-      qcDiv.innerHTML = `<div class="info-label">Query Count</div><div class="info-value">${meta.queryCount}</div>`;
-      panel.appendChild(qcDiv);
+      panel.appendChild(infoRow("Query Count", String(meta.queryCount)));
     }
   } else if (node.type === "entity") {
     if (meta.description) {
-      const descDiv = document.createElement("div");
-      descDiv.className = "info-section";
-      descDiv.innerHTML = `<div class="info-label">Description</div><div class="info-value">${String(meta.description).slice(0, 200)}</div>`;
-      panel.appendChild(descDiv);
+      panel.appendChild(infoRow("Description", String(meta.description).slice(0, 200)));
     }
     const fields = meta.fields as Array<{ name: string; type: string }> | undefined;
     if (fields && fields.length > 0) {
-      const fieldsDiv = document.createElement("div");
-      fieldsDiv.className = "info-section";
-      fieldsDiv.innerHTML = `<div class="info-label">Fields</div>`;
+      const fieldsDiv = infoLabel("Fields");
       const ul = document.createElement("ul");
       ul.className = "evidence-list";
       for (const f of fields) {
         const li = document.createElement("li");
         li.className = "evidence-item";
-        li.innerHTML = `<span class="evidence-type">${f.name}</span> — ${f.type}`;
+        const name = document.createElement("span");
+        name.className = "evidence-type";
+        name.textContent = f.name;
+        li.appendChild(name);
+        li.appendChild(document.createTextNode(` — ${f.type}`));
         ul.appendChild(li);
       }
       fieldsDiv.appendChild(ul);
       panel.appendChild(fieldsDiv);
     }
     if (meta.subgraph) {
-      const sgDiv = document.createElement("div");
-      sgDiv.className = "info-section";
-      sgDiv.innerHTML = `<div class="info-label">From Subgraph</div><div class="info-value">${meta.subgraph}</div>`;
-      panel.appendChild(sgDiv);
+      panel.appendChild(infoRow("From Subgraph", String(meta.subgraph)));
     }
   } else if (node.type === "contract") {
-    const addrDiv = document.createElement("div");
-    addrDiv.className = "info-section";
-    addrDiv.innerHTML = `<div class="info-label">Address</div><div class="info-value" style="font-family: var(--mono); font-size: 0.8rem">${meta.address || node.label}</div>`;
-    panel.appendChild(addrDiv);
+    panel.appendChild(infoRow("Address", String(meta.address || node.label), true));
   } else if (node.type === "network") {
-    const netDiv = document.createElement("div");
-    netDiv.className = "info-section";
-    netDiv.innerHTML = `<div class="info-label">Network</div><div class="info-value">${node.label}</div>`;
-    panel.appendChild(netDiv);
+    panel.appendChild(infoRow("Network", node.label));
   }
 }
 
 function showError(msg: string) {
+  stopLoadingAnimation();
   document.getElementById("loading-section")?.classList.add("hidden");
   const section = document.getElementById("error-section")!;
   section.classList.remove("hidden");

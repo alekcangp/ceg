@@ -83,43 +83,6 @@ function normalizeKey(name: string): string {
   return name.toLowerCase().replace(/[_-]/g, "");
 }
 
-/** ABI aliases that are standard token/ERC interfaces or token contracts — not protocols. */
-const GENERIC_ABI_NAMES = new Set([
-  "erc20", "erc20namebytes", "erc20symbolbytes", "erc721", "erc721metadata", "erc1155",
-  "erc165", "erc777", "ierc20", "ierc20metadata", "ierc721", "ierc1155",
-  "bep20", "bep21", "token", "tokens", "standardtoken", "tokeninterface",
-  "weth", "weth9", "wethinterface", "bytes32bytes", "context", "ownable",
-]);
-
-/** Generic token-ish ABI names: ERC/BEP standards, interfaces and common token contracts. */
-const GENERIC_ABI_RE = /^(erc|bep)\d+|^i[a-z]*erc\d+|token$|usdt$|usdc$|dai$|weth$|wbtc$/;
-
-export function isGenericAbiName(name: string): boolean {
-  const n = name.toLowerCase().replace(/[^a-z0-9]/g, "");
-  return GENERIC_ABI_NAMES.has(n) || GENERIC_ABI_RE.test(n);
-}
-
-/**
- * Extract protocol names from dataSources, skipping generic/standard ABIs
- * (ERC20, Token, TetherToken, BEP20USDT, ...). The dataSource ABI name for a
- * token contract is just an interface alias, not a protocol.
- */
-export function extractProtocols(analyses: SubgraphAnalysis[]): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const a of analyses) {
-    for (const d of a.manifest?.dataSources ?? []) {
-      const name = d.abi || d.name;
-      if (!name || isGenericAbiName(name)) continue;
-      const key = normalizeKey(name);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(name);
-    }
-  }
-  return out;
-}
-
 function extractEventName(signature: string): string {
   // Extract event name from signature like "Transfer(address,address,uint256)"
   const match = signature.match(/^(\w+)\s*\(/);

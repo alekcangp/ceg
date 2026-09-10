@@ -81,7 +81,7 @@ export interface SemanticConcept {
   evidence: Evidence[];
 }
 
-export type NodeType = "contract" | "network" | "subgraph" | "protocol" | "role" | "concept" | "entity";
+export type NodeType = "contract" | "network" | "subgraph" | "role" | "concept" | "entity";
 
 export interface EcosystemNode {
   id: string;
@@ -101,14 +101,6 @@ export interface AIRole {
   confidence: "high" | "medium" | "low";
 }
 
-/** A named protocol the contract belongs to / is used by, as identified by the AI. */
-export interface AIProtocol {
-  name: string;
-  confidence: "high" | "medium" | "low";
-  /** Where the protocol identity comes from (subgraph name, dataSource, description...). */
-  evidence?: string;
-}
-
 export interface AIAnalysis {
   /** "What is this thing anyway?" — plain-English identity of the contract. */
   whatIsIt: string;
@@ -121,8 +113,6 @@ export interface AIAnalysis {
   /** "Risky business?" — friendly risks & caveats of interacting with it. */
   riskyBusiness: string;
   roles: AIRole[];
-  /** Named protocols identified by the AI from dataSources/subgraph names. */
-  protocols?: AIProtocol[];
   concepts: SemanticConcept[];
   /** Short honest caveats / ambiguity warnings from the AI. */
   notices?: string[];
@@ -147,7 +137,6 @@ export interface AnalysisResult {
     subgraphs: number;
     entities: number;
     networks: number;
-    protocols: number;
   };
 }
 

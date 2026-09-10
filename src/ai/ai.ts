@@ -210,7 +210,6 @@ ${abiFunctions.length ? `🔩 CONTRACT ABI (the merged, deduplicated ABI inferre
 6. List the roles it plays. Each role MUST cite its evidence mentally from ABI/entities/dataSources; if the only evidence is the standard ERC-20 set, the honest role list is just "ERC-20 token" (plus e.g. "stablecoin" when the data hints at it). Use confidence "low" for guesses, "high" only for evidence-backed roles.
 7. Be warm but honest: if something is ambiguous, say so and use a lower confidence. Don't fabricate.
 8. Add up to 4 "notices": short, concrete caveats about the data or your conclusions (e.g. "only mainnet deployments were analyzed", "schema for subgraph X lacks descriptions", "role Y inferred from a single entity name"). Keep each under 120 characters.
-9. "protocols" — Which NAMED protocols does this contract belong to or is it used by (e.g. "Tether", "Uniswap", "Aave", "Hop Protocol")? TWO kinds of signals count: (a) the contract BELONGS to a protocol — explicit identity signals like subgraph names/descriptions, dataSource names and ABI aliases (e.g. "TetherToken" → Tether); (b) the contract IS USED BY a protocol — a subgraph NAMED after a protocol that tracks this contract through one of its dataSources (e.g. subgraph "Hop Protocol" watching via dataSource "TokenUSDT" means the contract is used by Hop Protocol — include it with evidence citing the subgraph name + dataSource name). Include the concrete signal in "evidence" (e.g. "subgraph Hop Protocol, dataSource: TokenUSDT"). If the data only shows generic interfaces (ERC20, Token...) with NO named protocol anywhere (no protocol-like subgraph names, no telling dataSource/ABI names), return an empty array — never guess a protocol from the address alone.
 
 OUTPUT FORMAT (return ONLY this JSON, no markdown fences, no extra text):
 {
@@ -221,9 +220,6 @@ OUTPUT FORMAT (return ONLY this JSON, no markdown fences, no extra text):
   "bottomLine": "1-2 sentence takeaway",
   "roles": [
     {"role": "role name", "confidence": "high|medium|low"}
-  ],
-  "protocols": [
-    {"name": "protocol name", "confidence": "high|medium|low", "evidence": "which data signal gave the name"}
   ],
   "notices": ["short caveat 1", "short caveat 2"],
   "concepts": [
@@ -280,15 +276,6 @@ export function parseAIResponse(text: unknown): AIAnalysis | undefined {
           confidence: (r.confidence as "high" | "medium" | "low") || "low",
         }))
       : [],
-    protocols: Array.isArray(parsed.protocols)
-      ? parsed.protocols
-          .map((p: Record<string, unknown>) => ({
-            name: String(p.name || ""),
-            confidence: (p.confidence as "high" | "medium" | "low") || "low",
-            evidence: p.evidence ? String(p.evidence) : undefined,
-          }))
-          .filter((p) => p.name)
-      : undefined,
     concepts: Array.isArray(parsed.concepts)
       ? parsed.concepts.map((c: Record<string, unknown>) => ({
           concept: String(c.concept || ""),

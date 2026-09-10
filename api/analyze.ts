@@ -1,7 +1,7 @@
-import type { AnalysisResult, Contract, SubgraphAnalysis, AIAnalysis } from "../shared/types.js";
+import type { AnalysisResult, Contract, SubgraphAnalysis } from "../shared/types.js";
 import { discoverSubgraphs, rankSubgraphs } from "../src/discovery/discovery.js";
 import { analyzeSubgraph } from "../src/manifest/manifest.js";
-import { deduplicateConcepts, extractProtocols } from "../src/normalization/normalization.js";
+import { deduplicateConcepts } from "../src/normalization/normalization.js";
 import { buildAIContext, callCloudflareAI, debugPrompt } from "../src/ai/ai.js";
 import { fetchABIFunctions } from "../src/manifest/manifest.js";
 import { fetchExplorerABI } from "../src/ai/explorer.js";
@@ -203,13 +203,13 @@ async function runAnalysis(address: string): Promise<AnalysisResult> {
       analyzed: analyzedList.length,
       failed: failedSubgraphs,
       filteredOut,
-      ...buildStats(analyzedList, aiAnalysis),
+      ...buildStats(analyzedList),
     },
   };
 }
 
-/** Graph statistics: subgraphs, entities, networks, protocols (non-generic dataSources). */
-function buildStats(analyses: SubgraphAnalysis[], aiAnalysis?: AIAnalysis) {
+/** Graph statistics: subgraphs, entities, networks. */
+function buildStats(analyses: SubgraphAnalysis[]) {
   const networks = new Set<string>();
   let entities = 0;
   for (const a of analyses) {
@@ -223,9 +223,6 @@ function buildStats(analyses: SubgraphAnalysis[], aiAnalysis?: AIAnalysis) {
     subgraphs: analyses.length,
     entities,
     networks: networks.size,
-    // Prefer AI-identified protocols (grounded in dataSource/subgraph names);
-    // fall back to the deterministic non-generic ABI filter when AI is absent.
-    protocols: aiAnalysis?.protocols?.length ?? extractProtocols(analyses).length,
   };
 }
 
@@ -243,6 +240,6 @@ function emptyResult(contract: Contract, totalDiscovered = 0, errors: string[] =
     nodes: [{ id: contract.address, type: "contract", label: contract.address.slice(0, 8) + "…" }],
     edges: [],
     errors,
-    stats: { totalDiscovered, analyzed: 0, failed: errors.length, filteredOut: 0, subgraphs: 0, entities: 0, networks: 0, protocols: 0 },
+    stats: { totalDiscovered, analyzed: 0, failed: errors.length, filteredOut: 0, subgraphs: 0, entities: 0, networks: 0 },
   };
 }

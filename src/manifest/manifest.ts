@@ -2,7 +2,15 @@ import { parse as parseYaml } from "yaml";
 import type { SubgraphDiscovery, SubgraphAnalysis, DataSource, Entity, Field, ABIFunction } from "../../shared/types.js";
 
 const IPFS_GATEWAY = (process.env.IPFS_GATEWAY_URL || "https://ipfs.thegraph.com/ipfs").replace(/\/$/, "");
-const cache = new Map<string, string>();
+function envIntTtl(name: string, fallback: number): number {
+  const raw = process.env[name];
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+/** TTL (seconds) for the in-memory IPFS cache. 0 = disabled. Honors SUBGRAPH_MANIFEST_CACHE_TTL. */
+const IPFS_CACHE_TTL_MS = envIntTtl("SUBGRAPH_MANIFEST_CACHE_TTL", 3600) * 1000;
+const MAX_CACHE_ENTRIES = 200;
+const cache = new Map<string, { text: string; expires: number }>();
 
 /**
  * Analyze a single subgraph: parse inline manifestText if present
@@ -90,7 +98,9 @@ interface ParsedManifest {
 }
 
 async function fetchFromIPFS(hash: string): Promise<string> {
-  if (cache.has(hash)) return cache.get(hash)!;
+  const hit = cache.get(hash);
+  if (hit && IPFS_CACHE_TTL_MS > 0 && hit.expires > Date.now()) return hit.text;
+  if (hit) cache.delete(hash); // expired entry, or cache disabled (TTL=0)
 
   const errors: string[] = [];
   // Один шлюз (ipfs.thegraph.com) + ретраи 429/5xx с экспоненциальным backoff.
@@ -107,7 +117,13 @@ async function fetchFromIPFS(hash: string): Promise<string> {
       if (!resp.ok) break; // 4xx кроме 429 — CID на шлюзе точно нет
       const text = await resp.text();
       if (text.length > 500_000) throw new Error("Response too large");
-      cache.set(hash, text);
+      if (IPFS_CACHE_TTL_MS > 0) {
+        if (cache.size >= MAX_CACHE_ENTRIES) {
+          const oldest = cache.keys().next();
+          if (!oldest.done) cache.delete(oldest.value);
+        }
+        cache.set(hash, { text, expires: Date.now() + IPFS_CACHE_TTL_MS });
+      }
       return text;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

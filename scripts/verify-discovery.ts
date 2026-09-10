@@ -6,7 +6,6 @@
 import { discoverSubgraphs, rankSubgraphs } from "../src/discovery/discovery.js";
 import { analyzeSubgraph } from "../src/manifest/manifest.js";
 import { buildGraph } from "../src/graph/builder.js";
-import { extractProtocols } from "../src/normalization/normalization.js";
 import { buildAIContext, buildPrompt } from "../src/ai/ai.js";
 import { TOP_SUBGRAPHS } from "../src/config.js";
 import type { SubgraphAnalysis } from "../shared/types.js";
@@ -45,7 +44,6 @@ for (const a of successful) {
 
 const { nodes, edges } = buildGraph({ address: USDT }, relevant, []);
 console.log(`\nграф: узлов=${nodes.length}, рёбер=${edges.length}`);
-console.log("protocols (после фильтра generic ABI):", extractProtocols(relevant));
 
 // --- AI: построить контекст/промпт и (если настроено) вызвать модель ---
 const abiFunctions = await import("../src/manifest/manifest.js").then((m) => m.fetchABIFunctions(relevant.flatMap((a) => a.abis ?? [])));
@@ -58,7 +56,7 @@ if (process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN) {
   const { callCloudflareAI } = await import("../src/ai/ai.js");
   const ai = await callCloudflareAI(aiContext);
   console.log("\n=== AI result ===");
-  console.log(JSON.stringify({ whatIsIt: ai?.whatIsIt, whatItCanDo: ai?.whatItCanDo, ecosystemTracking: ai?.ecosystemTracking, riskyBusiness: ai?.riskyBusiness, roles: ai?.roles, protocols: ai?.protocols, notices: ai?.notices }, null, 2));
+  console.log(JSON.stringify({ whatIsIt: ai?.whatIsIt, whatItCanDo: ai?.whatItCanDo, ecosystemTracking: ai?.ecosystemTracking, riskyBusiness: ai?.riskyBusiness, roles: ai?.roles, notices: ai?.notices }, null, 2));
 } else {
   console.log("\n(CF AI не настроен — пропускаю вызов модели)");
 }
