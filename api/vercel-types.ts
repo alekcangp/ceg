@@ -1,11 +1,11 @@
-import type { IncomingMessage, ServerResponse } from "http";
-
-export type VercelRequest = IncomingMessage & {
+export interface VercelRequest {
+  method?: string;
   body?: { address?: string };
-};
+}
 
-export type VercelResponse = ServerResponse & {
+export interface VercelResponse {
   status: (code: number) => VercelResponse;
   json: (data: unknown) => void;
   setHeader: (name: string, value: string | string[]) => void;
-};
+  end: () => void;
+}

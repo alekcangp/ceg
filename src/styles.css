@@ -296,6 +296,25 @@ body {
 .confidence-medium { color: var(--amber); }
 .confidence-low { color: var(--text-dim); }
 
+/* Stats bar */
+.stats-bar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 32px;
+}
+
+.stat-chip {
+  flex: 1;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  text-align: center;
+}
+
+.stat-value { font-size: 1.4rem; font-weight: 600; color: var(--cyan); }
+.stat-label { font-size: 0.72rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.1em; }
+
 /* AI section */
 .ai-section {
   margin-bottom: 32px;

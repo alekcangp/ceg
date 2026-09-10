@@ -15,6 +15,9 @@ export interface SubgraphDiscovery {
   queryCount?: number;
   signalAmount?: number;
   rank?: number;
+  manifestText?: string;
+  queryFeesAmount?: string;
+  signalledTokens?: string;
 }
 
 export interface DataSource {
@@ -42,6 +45,13 @@ export interface Entity {
   fields: Field[];
 }
 
+export interface ABIFunction {
+  name: string;
+  inputs: { name: string; type: string }[];
+  outputs: { name: string; type: string }[];
+  stateMutability?: string;
+}
+
 export interface SubgraphAnalysis {
   discovery: SubgraphDiscovery;
   manifest?: {
@@ -52,6 +62,10 @@ export interface SubgraphAnalysis {
   schema?: {
     entities: Entity[];
   };
+  schemaHash?: string;
+  schemaRefRaw?: string;
+  abis?: { name: string; file: string }[];
+  abiFunctions?: ABIFunction[];
   errors: string[];
 }
 
@@ -105,6 +119,10 @@ export interface AnalysisResult {
     totalDiscovered: number;
     analyzed: number;
     failed: number;
+    subgraphs: number;
+    entities: number;
+    networks: number;
+    protocols: number;
   };
 }
 

@@ -55,14 +55,31 @@ async function analyze(address: string) {
   hideResults();
   hideEmpty();
 
+  console.log("[app] analyze:start", { address });
+  const t0 = Date.now();
   try {
     const resp = await fetch("/api/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ address }),
     });
+    console.log("[app] analyze:response", { status: resp.status, ms: Date.now() - t0 });
 
-    const data: AnalysisResult | { error: string } = await resp.json();
+    let data: AnalysisResult | { error: string };
+    try {
+      data = await resp.json();
+    } catch {
+      console.error("[app] analyze:bad-json", { status: resp.status });
+      showError(`Server returned ${resp.status}. Is the API running? (vite proxy -> :3001, or vercel dev)`);
+      return;
+    }
+    console.log("[app] analyze:payload", {
+      ok: resp.ok,
+      keys: Object.keys(data),
+      stats: (data as AnalysisResult).stats,
+      nodes: (data as AnalysisResult).nodes?.length,
+      bytes: JSON.stringify(data).length,
+    });
 
     if (!resp.ok || "error" in data) {
       showError("error" in data ? data.error : "Analysis failed. Please try again.");
@@ -72,7 +89,8 @@ async function analyze(address: string) {
     currentResult = data;
     showResults(data);
   } catch (err) {
-    showError("Network error. Please check your connection and try again.");
+    console.error("[app] analyze:fetch-failed", err);
+    showError("Network error. API unreachable — run `vercel dev` or local API on :3001.");
   } finally {
     btn.disabled = false;
     input.disabled = false;
@@ -85,11 +103,9 @@ function showLoading() {
   section.innerHTML = "";
 
   const steps: ProgressStep[] = [
-    { id: "discover", label: "Finding subgraphs...", status: "pending" },
-    { id: "rank", label: "Selecting top 10...", status: "pending" },
-    { id: "manifest", label: "Analyzing manifests...", status: "pending" },
-    { id: "schema", label: "Reading schemas...", status: "pending" },
-    { id: "ai", label: "Building ecosystem...", status: "pending" },
+    { id: "discover", label: "Finding subgraph...", status: "pending" },
+    { id: "manifest", label: "Reading manifest...", status: "pending" },
+    { id: "ai", label: "Asking AI...", status: "pending" },
   ];
 
   for (const step of steps) {
@@ -143,6 +159,9 @@ function showResults(result: AnalysisResult) {
   // Render graph
   renderer?.setData(result.nodes, result.edges);
 
+  // Stats bar
+  renderStats(result);
+
   // AI analysis
   renderAI(result);
 
@@ -166,6 +185,31 @@ function showResults(result: AnalysisResult) {
     humor.textContent = MANY_CONNECTIONS_MSG;
     humor.style.marginBottom = "16px";
     section.insertBefore(humor, document.getElementById("ai-section"));
+  }
+}
+
+function renderStats(result: AnalysisResult) {
+  const bar = document.getElementById("stats-bar")!;
+  bar.innerHTML = "";
+  const s = result.stats;
+  const items: Array<[string, number]> = [
+    ["Subgraphs", s.subgraphs],
+    ["Entities", s.entities],
+    ["Protocols", s.protocols],
+    ["Networks", s.networks],
+  ];
+  for (const [label, value] of items) {
+    const chip = document.createElement("div");
+    chip.className = "stat-chip";
+    const v = document.createElement("div");
+    v.className = "stat-value";
+    v.textContent = String(value);
+    const l = document.createElement("div");
+    l.className = "stat-label";
+    l.textContent = label;
+    chip.appendChild(v);
+    chip.appendChild(l);
+    bar.appendChild(chip);
   }
 }
 

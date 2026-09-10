@@ -1,9 +1,10 @@
-import type { AnalysisResult, Contract, SubgraphAnalysis } from "../shared/types.js";
+import type { AnalysisResult, Contract, SubgraphAnalysis, AIAnalysis } from "../shared/types.js";
 import { discoverSubgraphs, rankSubgraphs } from "../src/discovery/discovery.js";
 import { analyzeSubgraph } from "../src/manifest/manifest.js";
 import { deduplicateConcepts } from "../src/normalization/normalization.js";
-import { buildAIContext, callCloudflareAI } from "../src/ai/ai.js";
+import { buildAIContext, callCloudflareAI, debugPrompt, fetchABIFunctions } from "../src/ai/ai.js";
 import { buildGraph } from "../src/graph/builder.js";
+import { TOP_SUBGRAPHS } from "../src/config.js";
 import type { VercelRequest, VercelResponse } from "./vercel-types.js";
 
 export const config = { maxDuration: 60 };
@@ -41,43 +42,92 @@ function isValidAddress(addr: string): boolean {
 }
 
 async function runAnalysis(address: string): Promise<AnalysisResult> {
+  const started = Date.now();
+  const log = (step: string, extra?: unknown) =>
+    console.log(`[analyze] ${step} +${Date.now() - started}ms`, extra ?? "");
   const contract: Contract = { address };
 
   // Step 1: Discover subgraphs via The Graph decentralized network
+  log("discover:start", { address });
   const discovered = await discoverSubgraphs(address);
   if (discovered.length === 0) {
     return emptyResult(contract);
   }
 
-  // Step 2: Rank and select top 10
-  const top10 = rankSubgraphs(discovered, address).slice(0, 10);
+  // Step 2: Rank and select top N, analyze all in parallel
+  const top = rankSubgraphs(discovered).slice(0, TOP_SUBGRAPHS);
+  log("discover:done", { found: discovered.length, analyzing: top.length });
+  log("subgraph:top", top.map((s) => ({ id: s.id, name: s.name, network: s.network, ipfsHash: s.ipfsHash })));
 
-  // Step 3: Parse manifests and schemas in parallel
-  const analyses = await Promise.allSettled(
-    top10.map((sg) => analyzeSubgraph(sg, address))
-  );
-
+  const settled = await Promise.allSettled(top.map((sg) => analyzeSubgraph(sg, address)));
   const successful: SubgraphAnalysis[] = [];
   const errors: string[] = [];
-  analyses.forEach((r, i) => {
+  settled.forEach((r, i) => {
     if (r.status === "fulfilled") successful.push(r.value);
-    else errors.push(`Failed to analyze subgraph ${top10[i].name}`);
+    else {
+      log("manifest:failed", { name: top[i]?.name, reason: r.reason instanceof Error ? r.reason.message : r.reason });
+      errors.push(`Failed to analyze subgraph ${top[i]?.name}`);
+    }
   });
+  if (successful.length === 0) {
+    return emptyResult(contract, discovered.length, errors.length ? errors : ["All top subgraphs failed to analyze"]);
+  }
+  log("manifest:done", successful.map((a) => ({
+    name: a.discovery.name,
+    dataSources: a.manifest?.dataSources.length ?? 0,
+    events: a.manifest?.eventHandlers.length ?? 0,
+    entities: a.schema?.entities.length ?? 0,
+    schemaHash: a.schemaHash,
+    errors: a.errors,
+  })));
+  for (const a of successful) errors.push(...a.errors);
 
   // Step 4: Deduplicate and build semantic layer
   const concepts = deduplicateConcepts(successful);
+  log("concepts:done", { count: concepts.length });
 
-  // Step 5: Build compact context and call AI
+  // Step 5: Build AI context and call AI
   const aiContext = buildAIContext(contract, successful);
-  const aiAnalysis = await callCloudflareAI(aiContext).catch(() => undefined);
+  const prompt = debugPrompt(aiContext);
+  log("ai:prompt", { chars: prompt.length });
+  console.log("[analyze] AI prompt >>>\n" + prompt + "\n<<< AI prompt");
+  const aiAnalysis = await callCloudflareAI(aiContext).catch((e) => {
+    log("ai:failed", e instanceof Error ? e.message : e);
+    return undefined;
+  });
+  log("ai:done", { hasSummary: Boolean(aiAnalysis?.summary) });
 
   // Step 6: Build graph
   const { nodes, edges } = buildGraph(contract, successful, concepts, aiAnalysis);
+  log("graph:done", { nodes: nodes.length, edges: edges.length });
 
   return {
     contract,
-    subgraphs: successful,
-    concepts,
+    subgraphs: successful.map(stripDiscovery).map((a) => ({
+      ...a,
+      manifest: a.manifest
+        ? {
+            dataSources: a.manifest.dataSources
+              .filter((d) => d.address?.toLowerCase() === address.toLowerCase())
+              .slice(0, 1),
+            entities: a.manifest.entities.slice(0, 5),
+            eventHandlers: a.manifest.eventHandlers.slice(0, 3).map((h) => ({
+              event: h.event.split("(")[0],
+              handler: "",
+            })),
+          }
+        : undefined,
+      schema: a.schema
+        ? {
+            entities: a.schema.entities.slice(0, 6).map((e) => ({
+              name: e.name,
+              description: e.description?.slice(0, 300),
+              fields: e.fields.slice(0, 6).map((f) => ({ name: f.name, type: f.type, description: f.description?.slice(0, 200) })),
+            })),
+          }
+        : undefined,
+    })),
+    concepts: concepts.slice(0, 5).map((c) => ({ concept: c.concept, confidence: c.confidence, evidence: c.evidence.slice(0, 2) })),
     aiAnalysis,
     nodes,
     edges,
@@ -86,18 +136,45 @@ async function runAnalysis(address: string): Promise<AnalysisResult> {
       totalDiscovered: discovered.length,
       analyzed: successful.length,
       failed: errors.length,
+      ...buildStats(successful),
     },
   };
 }
 
-function emptyResult(contract: Contract): AnalysisResult {
+/** Graph statistics: subgraphs, entities, networks, protocols (distinct datasource abis). */
+function buildStats(analyses: SubgraphAnalysis[]) {
+  const networks = new Set<string>();
+  const protocols = new Set<string>();
+  let entities = 0;
+  for (const a of analyses) {
+    if (a.discovery.network) networks.add(a.discovery.network);
+    entities += a.schema?.entities.length ?? 0;
+    for (const d of a.manifest?.dataSources || []) {
+      if (d.abi) protocols.add(d.abi);
+    }
+  }
+  return {
+    subgraphs: analyses.length,
+    entities,
+    networks: networks.size,
+    protocols: protocols.size,
+  };
+}
+
+/** Strip heavy fields (manifestText) before sending to frontend. */
+function stripDiscovery(a: SubgraphAnalysis): SubgraphAnalysis {
+  const { manifestText: _drop, ...rest } = a.discovery;
+  return { ...a, discovery: rest };
+}
+
+function emptyResult(contract: Contract, totalDiscovered = 0, errors: string[] = []): AnalysisResult {
   return {
     contract,
     subgraphs: [],
     concepts: [],
     nodes: [{ id: contract.address, type: "contract", label: contract.address.slice(0, 8) + "…" }],
     edges: [],
-    errors: [],
-    stats: { totalDiscovered: 0, analyzed: 0, failed: 0 },
+    errors,
+    stats: { totalDiscovered, analyzed: 0, failed: errors.length, subgraphs: 0, entities: 0, networks: 0, protocols: 0 },
   };
 }

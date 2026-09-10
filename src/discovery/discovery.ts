@@ -1,132 +1,87 @@
 import type { SubgraphDiscovery } from "../../shared/types.js";
 
-const THEGRAPH_GATEWAY = process.env.THEGRAPH_GATEWAY_URL || "https://gateway.thegraph.com/api";
-const THEGRAPH_API_KEY = process.env.THEGRAPH_API_KEY || "";
+const GATEWAY = process.env.THEGRAPH_GATEWAY_URL || "https://gateway.thegraph.com/api";
+const API_KEY = process.env.THEGRAPH_API_KEY || "";
+const NETWORK_ID =
+  process.env.GRAPH_NETWORK_SUBGRAPH_ID || "QmdKXcBUHR3UyURqVRQHu1oV6VUkBrhi2vNvMx3bNDnUCc";
 
 /**
- * Discover subgraphs that reference a given contract address.
- * Uses The Graph's decentralized network API to search for subgraphs
- * that index the target contract.
- *
- * The Graph exposes a subgraph search API at the gateway endpoint.
- * We query for subgraphs whose data sources include the contract address.
+ * Discover subgraph deployments indexing a contract address.
+ * Queries the Graph Network Subgraph (reference: contractc/stages/stage1-top-graphs.js),
+ * filters out denied deployments, returns manifest text inline (no extra IPFS fetch).
  */
 export async function discoverSubgraphs(contractAddress: string): Promise<SubgraphDiscovery[]> {
-  const normalizedAddr = contractAddress.toLowerCase();
+  const address = contractAddress.toLowerCase();
 
-  try {
-    // The Graph decentralized network has a subgraph search endpoint
-    // We query the gateway's search API for subgraphs matching the contract
-    const results = await querySubgraphSearch(normalizedAddr);
+  const query = `query TopDeployments($contractAddress: String!) {
+    subgraphDeployments(
+      where: { manifest_: { manifest_contains_nocase: $contractAddress } }
+      orderBy: signalAmount
+      orderDirection: desc
+      first: 20
+    ) {
+      id
+      ipfsHash
+      manifest { network manifest }
+      deniedAt
+      signalledTokens
+      queryFeesAmount
+      signalAmount
+    }
+  }`;
 
-    return results;
-  } catch (err) {
-    console.error("Subgraph discovery failed:", err);
-    // Fallback: try alternative discovery method via The Graph Explorer API
+  let lastErr: unknown = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      return await queryGraphExplorer(normalizedAddr);
-    } catch (err2) {
-      console.error("Fallback discovery also failed:", err2);
-      return [];
+      const resp = await fetch(`${GATEWAY}/${API_KEY}/deployments/id/${NETWORK_ID}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, variables: { contractAddress: address } }),
+        signal: AbortSignal.timeout(12000),
+      });
+      if (!resp.ok) throw new Error(`Gateway responded ${resp.status}`);
+      const data = await resp.json();
+      if (data?.errors?.length) throw new Error(`GraphQL: ${data.errors[0]?.message || "unknown"}`);
+      const rows = data?.data?.subgraphDeployments || [];
+      return rows
+        .filter((d: Record<string, unknown>) => !d.deniedAt)
+        .map((d: Record<string, unknown>) => {
+          const manifest = d.manifest as Record<string, unknown> | undefined;
+          const ipfsHash = d.ipfsHash ? String(d.ipfsHash) : String(d.id || "");
+          return {
+            id: String(d.id || ipfsHash),
+            name: ipfsHash.slice(0, 12),
+            description: manifest?.description ? String(manifest.description).trim() : undefined,
+            network: manifest?.network ? String(manifest.network) : undefined,
+            ipfsHash,
+            manifestText: manifest?.manifest ? String(manifest.manifest) : undefined,
+            signalAmount: d.signalAmount ? Number(d.signalAmount) : undefined,
+            queryFeesAmount: d.queryFeesAmount ? String(d.queryFeesAmount) : undefined,
+            signalledTokens: d.signalledTokens ? String(d.signalledTokens) : undefined,
+          } as SubgraphDiscovery;
+        });
+    } catch (err) {
+      lastErr = err;
+      console.error(`Discovery attempt ${attempt} failed:`, err);
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 1500));
     }
   }
-}
-
-/**
- * Query The Graph's decentralized network for subgraphs that index
- * the given contract address. The Graph Network's subgraph API
- * allows searching by contract address through the gateway.
- */
-async function querySubgraphSearch(address: string): Promise<SubgraphDiscovery[]> {
-  // The Graph decentralized network exposes a GraphQL endpoint for subgraph metadata
-  // We can query the "subgraphs" API for subgraphs that reference this contract
-  const query = `
-    {
-      subgraphs(
-        where: { dataSources_contains: ["${address}"] }
-        orderBy: queryCount
-        orderDirection: desc
-        first: 50
-      ) {
-        id
-        name
-        description
-        network
-        repository
-        ipfsHash
-        queryCount
-        signalAmount
-      }
-    }
-  `;
-
-  const url = `${THEGRAPH_GATEWAY}/${THEGRAPH_API_KEY}/subgraphs/search`;
-  const resp = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query }),
-    signal: AbortSignal.timeout(15000),
-  });
-
-  if (!resp.ok) throw new Error(`Gateway responded ${resp.status}`);
-
-  const data = await resp.json();
-  const subgraphs = data?.data?.subgraphs || [];
-
-  return subgraphs.map((sg: Record<string, unknown>) => ({
-    id: String(sg.id || ""),
-    name: String(sg.name || "Unknown"),
-    description: sg.description ? String(sg.description) : undefined,
-    network: sg.network ? String(sg.network) : undefined,
-    repository: sg.repository ? String(sg.repository) : undefined,
-    ipfsHash: sg.ipfsHash ? String(sg.ipfsHash) : undefined,
-    queryCount: sg.queryCount ? Number(sg.queryCount) : undefined,
-    signalAmount: sg.signalAmount ? Number(sg.signalAmount) : undefined,
-  }));
-}
-
-/**
- * Fallback: Query The Graph Explorer API for subgraphs.
- */
-async function queryGraphExplorer(address: string): Promise<SubgraphDiscovery[]> {
-  // Try the Graph Explorer search API
-  const url = `https://subgraph-search.thegraph.com/api/search?contract=${address}`;
-  const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
-
-  if (!resp.ok) throw new Error(`Explorer responded ${resp.status}`);
-
-  const data = await resp.json();
-  const items = data?.results || [];
-
-  return items.map((item: Record<string, unknown>) => ({
-    id: String(item.id || item.ipfsHash || ""),
-    name: String(item.name || item.displayName || "Unknown"),
-    description: item.description ? String(item.description) : undefined,
-    network: item.network ? String(item.network) : undefined,
-    repository: item.repository ? String(item.repository) : undefined,
-    ipfsHash: item.ipfsHash ? String(item.ipfsHash) : undefined,
-    queryCount: item.queryCount ? Number(item.queryCount) : undefined,
-    signalAmount: item.signalAmount ? Number(item.signalAmount) : undefined,
-  }));
+  console.error("Subgraph discovery failed:", lastErr);
+  return [];
 }
 
 /**
  * Rank subgraphs by relevance to the contract address.
  * Uses available evidence signals without fabricating scores.
  */
-export function rankSubgraphs(subgraphs: SubgraphDiscovery[], contractAddress: string): SubgraphDiscovery[] {
-  const addr = contractAddress.toLowerCase();
-
+export function rankSubgraphs(subgraphs: SubgraphDiscovery[]): SubgraphDiscovery[] {
   return [...subgraphs]
     .map((sg) => {
       let score = 0;
-      // Higher query count = more relevance signal
+      if (sg.manifestText) score += 5;
       if (sg.queryCount && sg.queryCount > 0) score += Math.min(sg.queryCount / 100, 10);
-      // Signal amount is a stake-based relevance metric
       if (sg.signalAmount && sg.signalAmount > 0) score += Math.min(sg.signalAmount / 1000, 5);
-      // Has IPFS hash = can retrieve manifest
       if (sg.ipfsHash) score += 2;
-      // Has repository = more metadata available
       if (sg.repository) score += 1;
       return { sg, score };
     })

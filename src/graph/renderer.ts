@@ -10,21 +10,13 @@ interface PositionedNode extends EcosystemNode {
 
 const TYPE_COLORS: Record<string, string> = {
   contract: "#00d4ff",
-  network: "#7b6cff",
   subgraph: "#00ff9d",
-  protocol: "#ffb547",
-  role: "#00d4ff",
-  concept: "#7b6cff",
   entity: "#6b7494",
 };
 
 const TYPE_SHAPES: Record<string, "circle" | "hex" | "diamond"> = {
   contract: "circle",
-  network: "diamond",
   subgraph: "hex",
-  protocol: "diamond",
-  role: "circle",
-  concept: "circle",
   entity: "circle",
 };
 
@@ -119,14 +111,18 @@ export class GraphRenderer {
   }
 
   private startForceLayout() {
-    this.settleFrames = 300;
+    if (this.animationFrame) cancelAnimationFrame(this.animationFrame);
+    this.settleFrames = 150;
     const tick = () => {
       if (this.settleFrames > 0) {
         this.applyForces();
+        this.updatePositions();
         this.settleFrames--;
+        this.animationFrame = requestAnimationFrame(tick);
+      } else {
+        this.updatePositions();
+        this.animationFrame = null;
       }
-      this.updatePositions();
-      this.animationFrame = requestAnimationFrame(tick);
     };
     tick();
   }
@@ -361,23 +357,17 @@ export class GraphRenderer {
 
   private buildTooltip(node: PositionedNode): string {
     const meta = node.metadata || {};
-    let html = `<div class="tooltip-label">${node.label}</div>`;
+    const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+    let html = `<div class="tooltip-label">${esc(node.label)}</div>`;
 
-    if (node.type === "role" || node.type === "concept") {
-      const conf = meta.confidence as string | undefined;
-      const sources = meta.sources as string[] | undefined;
-      html += `<div class="tooltip-meta">Confidence: ${conf || "unknown"}</div>`;
-      if (sources) html += `<div class="tooltip-meta">${sources.length} subgraphs</div>`;
-    } else if (node.type === "subgraph") {
-      html += `<div class="tooltip-meta">${meta.network || ""}</div>`;
-      if (meta.description) html += `<div class="tooltip-meta">${String(meta.description).slice(0, 80)}…</div>`;
+    if (node.type === "subgraph") {
+      html += `<div class="tooltip-meta">${esc(meta.network || "")}</div>`;
+      if (meta.description) html += `<div class="tooltip-meta">${esc(String(meta.description).slice(0, 80))}…</div>`;
     } else if (node.type === "entity") {
-      if (meta.description) html += `<div class="tooltip-meta">${String(meta.description).slice(0, 80)}</div>`;
-      html += `<div class="tooltip-meta">From: ${meta.subgraph || ""}</div>`;
+      if (meta.description) html += `<div class="tooltip-meta">${esc(String(meta.description).slice(0, 80))}</div>`;
+      html += `<div class="tooltip-meta">From: ${esc(meta.subgraph || "")}</div>`;
     } else if (node.type === "contract") {
-      html += `<div class="tooltip-meta">${meta.address || node.label}</div>`;
-    } else if (node.type === "network") {
-      html += `<div class="tooltip-meta">Network</div>`;
+      html += `<div class="tooltip-meta">${esc(meta.address || node.label)}</div>`;
     }
 
     return html;
