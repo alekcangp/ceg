@@ -9,9 +9,12 @@ interface PositionedNode extends EcosystemNode {
 }
 
 const TYPE_COLORS: Record<string, string> = {
-  contract: "#00d4ff",
-  subgraph: "#00ff9d",
-  entity: "#8b96bd",
+  contract: "#ffd166",
+  subgraph: "#ff6ec7",
+  entity: "#06ffa5",
+  network: "#4de1ff",
+  role: "#b892ff",
+  concept: "#c6ff4d",
 };
 
 const TYPE_SHAPES: Record<string, "circle" | "hex" | "diamond"> = {

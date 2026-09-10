@@ -3,44 +3,77 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CO-ECO-GRAPH</title>
+  <title>✨ Co-Eco-Graph — The Enchanted Contract Explorer 🧙</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Fredoka:wght@400;500;600;700&family=Caveat:wght@600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/src/styles.css" />
   <meta property="og:image" content="https://bolt.new/static/og_default.png">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:image" content="https://bolt.new/static/og_default.png">
 </head>
 <body>
+  <!-- Enchanted living background -->
+  <div class="magic-sky" aria-hidden="true">
+    <div class="stars"></div>
+    <div class="moon">🌕</div>
+    <div class="cloud c1">☁️</div>
+    <div class="cloud c2">☁️</div>
+    <div class="cloud c3">⛅</div>
+    <div class="rainbow" aria-hidden="true"></div>
+    <div class="hills" aria-hidden="true"></div>
+    <div id="fireflies" class="fireflies" aria-hidden="true"></div>
+    <div class="floaties" aria-hidden="true">
+      <span>🍓</span><span>✨</span><span>🧚</span><span>🐸</span><span>🌟</span><span>🦄</span><span>🍀</span><span>🔮</span>
+    </div>
+  </div>
+
   <div id="app">
+    <nav class="top-nav">
+      <span class="nav-logo">🔮 Co-Eco-Graph</span>
+      <span class="nav-tag">the friendly web3 fairy-tale map 🧝</span>
+    </nav>
+
     <header class="hero">
-      <h1 class="title">CO-ECO-GRAPH</h1>
-      <p class="subtitle">Discover how a smart contract is used across the indexed Web3 ecosystem.</p>
+      <div class="hero-badges">
+        <span class="badge b1">🧙 wizard-approved</span>
+        <span class="badge b2">🦄 100% friendly</span>
+        <span class="badge b3">🍭 zero boring graphs</span>
+      </div>
+      <h1 class="title"><span class="title-spark">✨</span> Co-Eco-Graph <span class="title-spark">✨</span></h1>
+      <p class="fantasy-script">— the enchanted atlas of smart contracts —</p>
+      <p class="subtitle">Drop a <b>mysterious contract address</b> into the magic cauldron 🧪 and watch its <b>fairy friends, goblin subgraphs &amp; sparkling entities</b> pop out!</p>
       <form id="search-form" class="search-form">
+        <span class="wand">🪄</span>
         <input
           id="address-input"
           type="text"
           class="address-input"
-          placeholder="0x contract address..."
+          placeholder="✨ paste a magic 0x spell here... e.g. 0x…"
           autocomplete="off"
           spellcheck="false"
           aria-label="Smart contract address"
         />
-        <button type="submit" class="analyze-btn" aria-label="Analyze contract">Analyze</button>
+        <button type="submit" class="analyze-btn" aria-label="Analyze contract">🔮 Reveal Magic!</button>
       </form>
+      <div class="hero-tips">
+        <button class="tip-chip" data-sample="0xdAC17F958D2ee523a2206206994597C13D831ec7">💚 try USDT</button>
+        <button class="tip-chip" data-sample="0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984">🦄 try Uniswap</button>
+        <button class="tip-chip" data-sample="0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2">🐸 try WETH</button>
+      </div>
     </header>
 
     <section id="loading-section" class="loading-section hidden" aria-live="polite"></section>
     <section id="error-section" class="error-section hidden" aria-live="assertive"></section>
     <section id="results-section" class="results-section hidden">
       <div id="graph-container" class="graph-container">
+        <div class="graph-banner">🌈 The Living Map — drag the critters! click for secrets!</div>
         <svg id="ecosystem-graph" class="ecosystem-graph" role="img" aria-label="Ecosystem graph"></svg>
         <div id="graph-tooltip" class="graph-tooltip hidden"></div>
         <div id="graph-controls" class="graph-controls">
-          <button id="zoom-in" class="graph-btn" aria-label="Zoom in">+</button>
-          <button id="zoom-out" class="graph-btn" aria-label="Zoom out">−</button>
-          <button id="zoom-reset" class="graph-btn" aria-label="Reset view">⟲</button>
+          <button id="zoom-in" class="graph-btn" aria-label="Zoom in">➕</button>
+          <button id="zoom-out" class="graph-btn" aria-label="Zoom out">➖</button>
+          <button id="zoom-reset" class="graph-btn" aria-label="Reset view">🧭</button>
         </div>
       </div>
       <div id="stats-bar" class="stats-bar"></div>
@@ -51,10 +84,22 @@
     </section>
 
     <div id="empty-state" class="empty-state">
-      <p class="empty-hint">Enter a contract address to begin ecosystem discovery.</p>
+      <div class="tavern-sign">
+        <div class="tavern-emoji">🏰🦉🍓</div>
+        <p class="empty-title">The enchanted tavern is quiet... <i>for now!</i></p>
+        <p class="empty-hint">Cast your first spell above — every great fairy-tale starts with a <b>0x</b> ✨</p>
+        <p class="empty-lore">Psst! Each contract is a dragon 🐉. Subgraphs are its gossiping pixies 🧚. Entities are treasure chests 💎.</p>
+      </div>
     </div>
+
+    <footer class="footer">
+      <span>made with 💜 + 🍓 in the Web3 forest</span>
+      <span class="foot-sep">•</span>
+      <span>no dragons were harmed 🐉</span>
+    </footer>
   </div>
 
   <script type="module" src="/src/app.ts"></script>
 </body>
 </html>
+

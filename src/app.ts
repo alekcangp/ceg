@@ -2,12 +2,12 @@ import type { AnalysisResult, EcosystemNode, ProgressStep } from "../shared/type
 import { GraphRenderer } from "./graph/renderer.js";
 
 const LOADING_MESSAGES = [
-  "Interrogating the blockchain...",
-  "Reading contract fingerprints...",
-  "Connecting the dots... literally.",
-  "Apparently, this contract has friends.",
-  "The graph has opinions.",
-  "Ecosystem reconstructed. Nobody was harmed.",
+  "🧙 Polishing the crystal ball...",
+  "🐉 Waking up the contract-dragon...",
+  "🧚 Bribing pixies with candy for gossip...",
+  "🍓 Watering the strawberries so the map grows...",
+  "🦄 Chasing a unicorn that stole an ABI...",
+  "🔮 The stars say: ecosystem almost revealed!",
 ];
 
 const EMPTY_MESSAGES = [
@@ -37,6 +37,26 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("zoom-reset")?.addEventListener("click", () => renderer?.resetView());
 
   input.focus();
+
+  // Fireflies sparkle in the enchanted sky
+  const ff = document.getElementById("fireflies");
+  if (ff) {
+    for (let i = 0; i < 26; i++) {
+      const s = document.createElement("i");
+      s.style.left = Math.random() * 100 + "%";
+      s.style.top = 20 + Math.random() * 70 + "%";
+      s.style.animationDelay = (-Math.random() * 7).toFixed(1) + "s";
+      ff.appendChild(s);
+    }
+  }
+
+  // Friendly sample spells
+  document.querySelectorAll<HTMLButtonElement>(".tip-chip").forEach((b) => {
+    b.addEventListener("click", () => {
+      input.value = b.dataset.sample || "";
+      if (input.value) analyze(input.value);
+    });
+  });
 
   // Auto-analyze when an address is passed in the URL (?address=0x…)
   const urlAddr = new URLSearchParams(window.location.search).get("address");
@@ -146,9 +166,9 @@ function showLoading() {
   section.innerHTML = "";
 
   const steps: ProgressStep[] = [
-    { id: "discover", label: "Finding subgraph...", status: "pending" },
-    { id: "manifest", label: "Reading manifest...", status: "pending" },
-    { id: "ai", label: "Asking AI...", status: "pending" },
+    { id: "discover", label: "🗺️ Hunting pixie-subgraphs in the forest...", status: "pending" },
+    { id: "manifest", label: "📜 Reading ancient scrolls (manifests)...", status: "pending" },
+    { id: "ai", label: "🧙 Asking the wise oracle-AI...", status: "pending" },
   ];
 
   for (const step of steps) {
@@ -224,14 +244,15 @@ function renderStats(result: AnalysisResult) {
   const bar = document.getElementById("stats-bar")!;
   bar.innerHTML = "";
   const s = result.stats;
-  const items: Array<[string, number]> = [
-    ["Subgraphs", s.subgraphs],
-    ["Entities", s.entities],
-    ["Networks", s.networks],
+  const items: Array<[string, number, string]> = [
+    ["🧚 Pixie Subgraphs", s.subgraphs, "gossiping pixies found"],
+    ["💎 Treasure Chests", s.entities, "entities / treasures"],
+    ["🌍 Magic Kingdoms", s.networks, "networks / kingdoms"],
   ];
-  for (const [label, value] of items) {
+  for (const [label, value, title] of items) {
     const chip = document.createElement("div");
     chip.className = "stat-chip";
+    chip.title = title;
     const v = document.createElement("div");
     v.className = "stat-value";
     v.textContent = String(value);
@@ -285,8 +306,8 @@ function renderOverview(result: AnalysisResult) {
       grid.appendChild(cell);
     };
 
-    row("Networks", "🌐", networks, "var(--cyan)");
-    row("Key Roles", "🏷️", keyRoles, "var(--green)");
+    row("Magic Kingdoms", "🌍", networks, "var(--gold)");
+    row("Hero Roles", "🦸", keyRoles, "var(--gold)");
 
     box.appendChild(grid);
   }
@@ -298,13 +319,17 @@ function renderAI(result: AnalysisResult) {
 
   const heading = document.createElement("div");
   heading.className = "section-heading";
-  heading.textContent = "AI Analysis";
+  heading.textContent = "🔮 Tales from the Oracle";
+  const oracleSub = document.createElement("p");
+  oracleSub.className = "oracle-sub";
+  oracleSub.textContent = "🦉 the wise owl read the stars, the scrolls & the pixie gossip — just for you!";
   section.appendChild(heading);
+  section.appendChild(oracleSub);
 
   if (!result.aiAnalysis) {
     const fallback = document.createElement("p");
     fallback.className = "ai-summary ai-fallback";
-    fallback.textContent = "🤖 AI analysis wasn't able to complete right now. Showing deterministic results below.";
+    fallback.textContent = "🦉 The oracle-owl is napping... Showing treasure found by brave squirrels instead!";
     section.appendChild(fallback);
     if (result.aiError) {
       const why = document.createElement("p");
@@ -318,11 +343,11 @@ function renderAI(result: AnalysisResult) {
   const ai = result.aiAnalysis;
 
   const blocks: Array<[string, string]> = [
-    ["🤔 What is this thing anyway?", ai.whatIsIt],
-    ["⚙️ What can it actually do?", ai.whatItCanDo],
-    ["🕵️ What is the ecosystem tracking behind the scenes?", ai.ecosystemTracking],
-    ["🎢 Risky business?", ai.riskyBusiness],
-    ["🎯 The Bottom Line", ai.bottomLine],
+    ["🐉 What beast is this? (the contract, plainly)", ai.whatIsIt],
+    ["🪄 What spells can it cast? (what it can do)", ai.whatItCanDo],
+    ["🧚 Pixie gossip (ecosystem tracking)", ai.ecosystemTracking],
+    ["⚠️ Dragon warnings! (risks, kindly)", ai.riskyBusiness],
+    ["🌟 Moral of the story (bottom line)", ai.bottomLine],
   ];
   for (const [title, text] of blocks) {
     if (!text) continue;
