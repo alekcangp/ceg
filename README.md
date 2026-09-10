@@ -40,9 +40,6 @@ npm run dev
 | `GRAPH_NETWORK_SUBGRAPH_ID` | Graph Network subgraph deployment ID |
 | `IPFS_GATEWAY_URL` | IPFS gateway URL |
 | `SUBGRAPH_MANIFEST_CACHE_TTL` | In-memory IPFS cache TTL in seconds (0 = disabled, default 3600) |
-| `EXPLORER_API_URL` | Block explorer API URL (ABI fallback, e.g. Etherscan v2) |
-| `EXPLORER_API_KEY` | Block explorer API key |
-| `EXPLORER_CHAIN_ID` | Block explorer chain id (default: `1`) |
 | `TOP_SUBGRAPHS` | Top N subgraphs by signal + top N by query fees (default: `5`) |
 
 > Note: `api/analyze.ts` uses `maxDuration: 60` — on the Vercel Hobby plan

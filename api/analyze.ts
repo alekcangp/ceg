@@ -4,7 +4,6 @@ import { analyzeSubgraph } from "../src/manifest/manifest.js";
 import { deduplicateConcepts } from "../src/normalization/normalization.js";
 import { buildAIContext, callCloudflareAI, debugPrompt } from "../src/ai/ai.js";
 import { fetchABIFunctions } from "../src/manifest/manifest.js";
-import { fetchExplorerABI } from "../src/ai/explorer.js";
 import { buildGraph } from "../src/graph/builder.js";
 import type { VercelRequest, VercelResponse } from "./vercel-types.js";
 
@@ -130,19 +129,12 @@ async function runAnalysis(address: string): Promise<AnalysisResult> {
   const concepts = deduplicateConcepts(analyzedList);
   log("concepts:done", { count: concepts.length });
 
-  // Step 5: Build AI context (incl. merged/common ABI) and call AI
+  // Step 5: Build AI context (incl. merged/common ABI from subgraph manifests) and call AI.
+  // ABI sources are The Graph/IPFS only: fetchABIFunctions resolves manifest ABI
+  // references that carry an IPFS hash and skips the rest.
   const manifestAbis = analyzedList.flatMap((a) => a.abis ?? []);
   log("abi:fetch:start", { manifestAbis: manifestAbis.length });
-  let abiFunctions = await fetchABIFunctions(manifestAbis);
-  log("abi:manifest:done", { count: abiFunctions.length });
-
-  // Subgraph manifests often point to relative ABI paths (not IPFS), so the
-  // manifest-based fetch can be empty. Fall back to the explorer (Etherscan).
-  if (abiFunctions.length === 0) {
-    const explorerAbi = await fetchExplorerABI(contract.address);
-    log("abi:explorer", { count: explorerAbi?.length ?? 0 });
-    if (explorerAbi?.length) abiFunctions = explorerAbi;
-  }
+  const abiFunctions = await fetchABIFunctions(manifestAbis);
   log("abi:done", { count: abiFunctions.length });
 
   const aiContext = buildAIContext(contract, analyzedList, abiFunctions);
