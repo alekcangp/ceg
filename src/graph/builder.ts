@@ -51,16 +51,24 @@ export function buildGraph(
       label: sg.discovery.name.slice(0, 20),
       metadata: {
         name: sg.discovery.name,
+        fullIpfsHash: sg.discovery.ipfsHash,
+        ipfsHash: sg.discovery.ipfsHash,
+        network: sg.discovery.network,
         description: sg.discovery.description,
         repository: sg.discovery.repository,
         queryCount: sg.discovery.queryCount,
+        signalAmount: sg.discovery.signalAmount,
       },
     });
     addEdge(sgId, contractId);
 
-    // Add entity nodes connected to subgraph
-    if (sg.schema?.entities) {
-      for (const entity of sg.schema.entities.slice(0, 5)) {
+    // Add entity nodes connected to subgraph.
+    // Prefer the richer GraphQL schema when available; fall back to the
+    // manifest's entity names (fields empty) when the schema IPFS fetch failed,
+    // so entity nodes still appear on the graph.
+    const schemaEntities = sg.schema?.entities;
+    if (schemaEntities?.length) {
+      for (const entity of schemaEntities) {
         const entityId = `entity:${sg.discovery.id}:${entity.name}`;
         addNode({
           id: entityId,
@@ -69,7 +77,23 @@ export function buildGraph(
           metadata: {
             name: entity.name,
             description: entity.description,
-            fields: entity.fields.slice(0, 5),
+            fields: entity.fields,
+            subgraph: sg.discovery.name,
+          },
+        });
+        addEdge(entityId, sgId);
+      }
+    } else if (sg.manifest?.entities?.length) {
+      for (const name of sg.manifest.entities) {
+        const entityId = `entity:${sg.discovery.id}:${name}`;
+        addNode({
+          id: entityId,
+          type: "entity",
+          label: name.slice(0, 15),
+          metadata: {
+            name,
+            description: undefined,
+            fields: [],
             subgraph: sg.discovery.name,
           },
         });

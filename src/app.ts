@@ -39,6 +39,13 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("zoom-reset")?.addEventListener("click", () => renderer?.resetView());
 
   input.focus();
+
+  // Auto-analyze when an address is passed in the URL (?address=0x…)
+  const urlAddr = new URLSearchParams(window.location.search).get("address");
+  if (urlAddr) {
+    input.value = urlAddr;
+    analyze(urlAddr);
+  }
 });
 
 let currentResult: AnalysisResult | null = null;
@@ -162,19 +169,22 @@ function showResults(result: AnalysisResult) {
   // Stats bar
   renderStats(result);
 
+  // Ecosystem overview: networks, protocols, roles by name
+  renderOverview(result);
+
   // AI analysis
   renderAI(result);
 
   // Sources
   renderSources(result);
 
-  // Partial failure notice
-  if (result.errors.length > 0 && result.subgraphs.length > 0) {
+  // Show a notice only when one of the top picked subgraphs genuinely failed.
+  if (result.stats.failed > 0 && result.subgraphs.length > 0) {
     const notice = document.createElement("div");
     notice.className = "loading-message";
     notice.style.color = "var(--amber)";
     notice.style.marginBottom = "16px";
-    notice.textContent = `Some sources could not be analyzed. ${result.stats.analyzed} of ${result.stats.analyzed + result.stats.failed} subgraphs were successfully processed.`;
+    notice.textContent = `${result.stats.analyzed} of ${result.stats.analyzed + result.stats.failed} top subgraphs were fully processed. ${result.stats.failed} subgraph${result.stats.failed === 1 ? "" : "s"} could not be fully analyzed, so partial data is shown.`;
     section.insertBefore(notice, document.getElementById("ai-section"));
   }
 
@@ -213,42 +223,116 @@ function renderStats(result: AnalysisResult) {
   }
 }
 
+/**
+ * Show the actual NAMES of networks, protocols and roles (not just counts).
+ * Networks/protocols are derived from the analyzed subgraphs; roles come from AI.
+ */
+function renderOverview(result: AnalysisResult) {
+  const box = document.getElementById("overview-section");
+  if (!box) return;
+  box.innerHTML = "";
+
+  const networks = [...new Set(result.subgraphs.map((s) => s.discovery.network).filter((v): v is string => Boolean(v)))];
+  const protocols = [
+    ...new Set(
+      result.subgraphs
+        .flatMap((s) => s.manifest?.dataSources ?? [])
+        .map((d) => d.abi || d.name)
+        .filter((v): v is string => Boolean(v))
+    ),
+  ];
+  const keyRoles = (result.aiAnalysis?.roles ?? []).map((r) => r.role).filter((v): v is string => Boolean(v));
+  if (networks.length || protocols.length || keyRoles.length) {
+    const grid = document.createElement("div");
+    grid.className = "overview-grid";
+
+    const row = (label: string, emoji: string, items: string[], color: string) => {
+      if (!items.length) return;
+      const cell = document.createElement("div");
+      cell.className = "overview-cell";
+      const head = document.createElement("div");
+      head.className = "overview-label";
+      head.textContent = `${emoji} ${label}`;
+      cell.appendChild(head);
+      const chips = document.createElement("div");
+      chips.className = "overview-chips";
+      for (const item of items) {
+        const c = document.createElement("span");
+        c.className = "overview-chip";
+        c.style.borderColor = color;
+        c.style.color = color === "var(--cyan)" ? "var(--cyan)" : color;
+        c.textContent = item;
+        chips.appendChild(c);
+      }
+      cell.appendChild(chips);
+      grid.appendChild(cell);
+    };
+
+    row("Networks", "🌐", networks, "var(--cyan)");
+    row("Protocols", "🧩", protocols, "var(--purple)");
+    row("Key Roles", "🏷️", keyRoles, "var(--green)");
+
+    box.appendChild(grid);
+  }
+}
+
 function renderAI(result: AnalysisResult) {
   const section = document.getElementById("ai-section")!;
   section.innerHTML = "";
 
+  const heading = document.createElement("div");
+  heading.className = "section-heading";
+  heading.textContent = "AI Analysis";
+  section.appendChild(heading);
+
   if (!result.aiAnalysis) {
-    section.innerHTML = `<div class="section-heading">Analysis</div><p class="ai-summary">AI analysis unavailable. Showing deterministic results below.</p>`;
+    const fallback = document.createElement("p");
+    fallback.className = "ai-summary ai-fallback";
+    fallback.innerHTML = `🤖 AI analysis wasn't able to complete right now. Showing deterministic results below.`;
+    section.appendChild(fallback);
+    if (result.aiError) {
+      const why = document.createElement("p");
+      why.className = "loading-message";
+      why.textContent = result.aiError;
+      section.appendChild(why);
+    }
     return;
   }
 
-  const heading = document.createElement("div");
-  heading.className = "section-heading";
-  heading.textContent = "Analysis";
-  section.appendChild(heading);
+  const ai = result.aiAnalysis;
 
-  const summary = document.createElement("p");
-  summary.className = "ai-summary";
-  summary.textContent = result.aiAnalysis.summary;
-  section.appendChild(summary);
-
-  if (result.aiAnalysis.roles.length > 0) {
-    const rolesHeading = document.createElement("div");
-    rolesHeading.className = "section-heading";
-    rolesHeading.textContent = "Key Roles";
-    rolesHeading.style.marginTop = "20px";
-    section.appendChild(rolesHeading);
-
-    const rolesDiv = document.createElement("div");
-    rolesDiv.className = "ai-roles";
-    for (const role of result.aiAnalysis.roles) {
-      const badge = document.createElement("div");
-      badge.className = "role-badge";
-      badge.innerHTML = `<span class="role-name">${role.role}</span><span class="role-confidence confidence-${role.confidence}">${role.confidence}</span>`;
-      rolesDiv.appendChild(badge);
-    }
-    section.appendChild(rolesDiv);
+  const blocks: Array<[string, string]> = [
+    ["🤔 What is this thing anyway?", ai.whatIsIt],
+    ["⚙️ What can it actually do?", ai.whatItCanDo],
+    ["🕵️ What is the ecosystem tracking behind the scenes?", ai.ecosystemTracking],
+    ["🎢 Risky business?", ai.riskyBusiness],
+    ["🎯 The Bottom Line", ai.bottomLine],
+  ];
+  for (const [title, text] of blocks) {
+    if (!text) continue;
+    const block = document.createElement("div");
+    block.className = "ai-block";
+    const t = document.createElement("div");
+    t.className = "ai-block-title";
+    t.textContent = title;
+    const p = document.createElement("p");
+    p.className = "ai-block-text";
+    p.textContent = text;
+    block.appendChild(t);
+    block.appendChild(p);
+    section.appendChild(block);
   }
+
+}
+
+/** Format raw token amounts (wei, 1e18) into human-readable GRT values. */
+function formatTokens(raw: number | undefined): string {
+  if (raw === undefined || raw === null || Number.isNaN(raw)) return "";
+  const tokens = raw / 1e18;
+  if (tokens >= 1000) return Math.round(tokens).toLocaleString("en-US");
+  if (tokens >= 1) return tokens.toFixed(1);
+  if (tokens > 0) return tokens.toPrecision(2);
+  return "0";
 }
 
 function renderSources(result: AnalysisResult) {
@@ -260,59 +344,45 @@ function renderSources(result: AnalysisResult) {
   heading.textContent = `Top ${result.subgraphs.length} Sources`;
   section.appendChild(heading);
 
-  const list = document.createElement("div");
-  list.className = "source-list";
+  const table = document.createElement("table");
+  table.className = "sources-table";
 
+  const thead = document.createElement("thead");
+  thead.innerHTML = `<tr>
+    <th>IPFS</th><th>Network</th><th>Description</th><th>Signal (GRT)</th><th>Query fees (GRT)</th>
+  </tr>`;
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
   for (const sg of result.subgraphs) {
-    const card = document.createElement("div");
-    card.className = "source-card";
+    const tr = document.createElement("tr");
 
-    const name = document.createElement("div");
-    name.className = "source-name";
-    name.textContent = sg.discovery.name;
-    card.appendChild(name);
+    const ipfs = document.createElement("td");
+    ipfs.className = "mono";
+    ipfs.textContent = sg.discovery.ipfsHash ?? "";
+    tr.appendChild(ipfs);
 
-    if (sg.discovery.network) {
-      const net = document.createElement("div");
-      net.className = "source-network";
-      net.textContent = sg.discovery.network;
-      card.appendChild(net);
-    }
+    const net = document.createElement("td");
+    net.textContent = sg.discovery.network ?? "";
+    tr.appendChild(net);
 
-    if (sg.discovery.description) {
-      const desc = document.createElement("div");
-      desc.className = "source-desc";
-      desc.textContent = sg.discovery.description.slice(0, 120);
-      card.appendChild(desc);
-    }
+    const desc = document.createElement("td");
+    desc.textContent = sg.discovery.description ?? "";
+    tr.appendChild(desc);
 
-    const meta = document.createElement("div");
-    meta.className = "source-meta";
-    if (sg.discovery.repository) {
-      const link = document.createElement("a");
-      link.href = sg.discovery.repository;
-      link.target = "_blank";
-      link.rel = "noopener";
-      link.textContent = "GitHub";
-      meta.appendChild(link);
-    }
-    if (sg.discovery.queryCount !== undefined) {
-      const qc = document.createElement("span");
-      qc.textContent = `${sg.discovery.queryCount} queries`;
-      meta.appendChild(qc);
-    }
-    if (sg.errors.length > 0) {
-      const err = document.createElement("span");
-      err.style.color = "var(--amber)";
-      err.textContent = `${sg.errors.length} warnings`;
-      meta.appendChild(err);
-    }
-    card.appendChild(meta);
+    const signal = document.createElement("td");
+    signal.textContent = formatTokens(sg.discovery.signalAmount);
+    tr.appendChild(signal);
 
-    list.appendChild(card);
+    const queries = document.createElement("td");
+    queries.textContent = formatTokens(sg.discovery.queryFeesAmount ? Number(sg.discovery.queryFeesAmount) : undefined);
+    tr.appendChild(queries);
+
+    if (sg.errors.length > 0) tr.title = `${sg.errors.length} warnings`;
+    tbody.appendChild(tr);
   }
-
-  section.appendChild(list);
+  table.appendChild(tbody);
+  section.appendChild(table);
 }
 
 function showInfoPanel(node: EcosystemNode, result: AnalysisResult | null) {

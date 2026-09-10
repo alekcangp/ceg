@@ -102,9 +102,20 @@ export interface AIRole {
 }
 
 export interface AIAnalysis {
-  summary: string;
+  /** "What is this thing anyway?" — plain-English identity of the contract. */
+  whatIsIt: string;
+  /** "What can it actually do?" — ABI explained simply. */
+  whatItCanDo: string;
+  /** "What is the ecosystem tracking behind the scenes?" — subgraph entities explained simply. */
+  ecosystemTracking: string;
+  /** "The Bottom Line" — short human summary. */
+  bottomLine: string;
+  /** "Risky business?" — friendly risks & caveats of interacting with it. */
+  riskyBusiness: string;
   roles: AIRole[];
   concepts: SemanticConcept[];
+  /** Short honest caveats / ambiguity warnings from the AI. */
+  notices?: string[];
 }
 
 export interface AnalysisResult {
@@ -112,6 +123,8 @@ export interface AnalysisResult {
   subgraphs: SubgraphAnalysis[];
   concepts: SemanticConcept[];
   aiAnalysis?: AIAnalysis;
+  /** Human-readable reason AI analysis is missing (when aiAnalysis is undefined). */
+  aiError?: string;
   nodes: EcosystemNode[];
   edges: EcosystemEdge[];
   errors: string[];

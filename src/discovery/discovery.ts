@@ -1,4 +1,5 @@
 import type { SubgraphDiscovery } from "../../shared/types.js";
+import { TOP_SUBGRAPHS } from "../config.js";
 
 const GATEWAY = process.env.THEGRAPH_GATEWAY_URL || "https://gateway.thegraph.com/api";
 const API_KEY = process.env.THEGRAPH_API_KEY || "";
@@ -18,7 +19,7 @@ export async function discoverSubgraphs(contractAddress: string): Promise<Subgra
       where: { manifest_: { manifest_contains_nocase: $contractAddress } }
       orderBy: signalAmount
       orderDirection: desc
-      first: 20
+      first: ${TOP_SUBGRAPHS}
     ) {
       id
       ipfsHash

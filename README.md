@@ -1,4 +1,4 @@
-# Contract Ecosystem Graph
+# CO-ECO-GRAPH
 
 Discover how a smart contract is used across the indexed Web3 ecosystem.
 
@@ -14,7 +14,7 @@ npm run dev
 
 1. Enter a smart contract address
 2. The app searches The Graph's decentralized network for subgraphs that index that contract
-3. It retrieves and parses the top 10 subgraph manifests from IPFS
+3. It retrieves and parses the top TOP_SUBGRAPHS subgraph manifests from IPFS (default 5, configurable via the TOP_SUBGRAPHS environment variable)
 4. It extracts data sources, event handlers, entities, and fields
 5. It retrieves and parses GraphQL schemas from IPFS
 6. It deduplicates semantic concepts across subgraphs

@@ -3,7 +3,18 @@ import type { SubgraphDiscovery, SubgraphAnalysis, DataSource, Entity, Field, AB
 
 const IPFS_GATEWAYS = (process.env.IPFS_GATEWAY_URL
   ? [process.env.IPFS_GATEWAY_URL]
-  : ["https://gateway.pinata.cloud/ipfs", "https://ipfs.io/ipfs", "https://cloudflare-ipfs.com/ipfs"]
+  : [
+      // ipfs.thegraph.com is the most reliable (same infra as discovery),
+      // filebase.io reliably mirrors these CIDs; the rest are fallbacks.
+      "https://ipfs.thegraph.com/ipfs",
+      "https://ipfs.filebase.io/ipfs",
+      "https://gateway.pinata.cloud/ipfs",
+      "https://nftstorage.link/ipfs",
+      "https://w3s.link/ipfs",
+      "https://cloudflare-ipfs.com/ipfs",
+      "https://gateway.ipfs.io/ipfs",
+      "https://ipfs.io/ipfs",
+    ]
 ).map((g) => g.replace(/\/$/, ""));
 const cache = new Map<string, string>();
 
@@ -58,8 +69,14 @@ export async function analyzeSubgraph(sg: SubgraphDiscovery, contractAddress: st
     if (manifest?.schemaRefRaw) errors.push(`Schema: not on IPFS (schema.file = ${manifest.schemaRefRaw})`);
   }
 
+  const enrichedDiscovery = {
+    ...sg,
+    description: sg.description || manifest?.description || undefined,
+    repository: sg.repository || manifest?.repository || undefined,
+  };
+
   return {
-    discovery: sg,
+    discovery: enrichedDiscovery,
     manifest: manifest
       ? {
           dataSources: manifest.dataSources,
@@ -82,6 +99,8 @@ interface ParsedManifest {
   schemaHash?: string;
   schemaRefRaw?: string;
   abis: { name: string; file: string }[];
+  description?: string;
+  repository?: string;
 }
 
 async function fetchFromIPFS(hash: string): Promise<string> {
@@ -90,7 +109,7 @@ async function fetchFromIPFS(hash: string): Promise<string> {
   let lastErr: unknown = null;
   for (const gw of IPFS_GATEWAYS) {
     try {
-      const resp = await fetch(`${gw}/${hash}`, { signal: AbortSignal.timeout(10000) });
+      const resp = await fetch(`${gw}/${hash}`, { signal: AbortSignal.timeout(8000) });
       if (!resp.ok) throw new Error(`IPFS fetch failed: ${resp.status}`);
       const text = await resp.text();
       if (text.length > 500_000) throw new Error("Response too large");
@@ -118,6 +137,11 @@ function parseManifest(yamlText: string, _contractAddress: string): ParsedManife
   }
 
   if (!doc || typeof doc !== "object") throw new Error("Invalid manifest structure");
+
+  // Top-level manifest metadata (description/repository live here in the YAML,
+  // NOT in the GraphQL `manifest {}` object returned by the gateway).
+  const description = doc.description ? String(doc.description).trim() : undefined;
+  const repository = doc.repository ? String(doc.repository).trim() : undefined;
 
   // Extract schema file reference (may be IPFS hash or relative path)
   let schemaHash: string | undefined;
@@ -204,7 +228,7 @@ function parseManifest(yamlText: string, _contractAddress: string): ParsedManife
     }
   }
 
-  return { dataSources, entities, eventHandlers, schemaHash, schemaRefRaw, abis: rawAbis };
+  return { dataSources, entities, eventHandlers, schemaHash, schemaRefRaw, abis: rawAbis, description, repository };
 }
 
 function extractIPFSHash(path: string): string | undefined {
@@ -290,13 +314,12 @@ function parseFields(body: string): Field[] {
   return fields;
 }
 
-/** Fetch ABI JSON from IPFS and extract only function signatures */
-async function fetchABIFunctions(
-  abis: { name: string; file: string }[],
-  gateways: string[],
-  cache: Map<string, string>
+/** Fetch ABI JSON from IPFS and extract only function signatures (deduplicated). */
+export async function fetchABIFunctions(
+  abis: { name: string; file: string }[]
 ): Promise<ABIFunction[]> {
   const allFunctions: ABIFunction[] = [];
+  const seen = new Set<string>();
 
   for (const abi of abis) {
     const hash = extractIPFSHash(abi.file);
@@ -323,6 +346,11 @@ async function fetchABIFunctions(
         const inputs = (func.inputs as Array<{ name: string; type: string }> | undefined) || [];
         const outputs = (func.outputs as Array<{ name: string; type: string }> | undefined) || [];
 
+        // Deduplicate by ABI signature so identical functions appear once.
+        const signature = `${name}(${inputs.map((i) => i.type).join(",")})`;
+        if (seen.has(signature)) continue;
+        seen.add(signature);
+
         allFunctions.push({
           name,
           inputs: inputs.slice(0, 5).map((inp) => ({ name: inp.name || "", type: inp.type })),
@@ -331,10 +359,10 @@ async function fetchABIFunctions(
         });
       }
     } catch {
-      // ignore parse errors
+      // ignore parse errors for this ABI
     }
   }
 
-  return allFunctions.slice(0, 40);
+  return allFunctions;
 }
 

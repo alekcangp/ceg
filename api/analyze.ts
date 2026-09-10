@@ -2,7 +2,9 @@ import type { AnalysisResult, Contract, SubgraphAnalysis, AIAnalysis } from "../
 import { discoverSubgraphs, rankSubgraphs } from "../src/discovery/discovery.js";
 import { analyzeSubgraph } from "../src/manifest/manifest.js";
 import { deduplicateConcepts } from "../src/normalization/normalization.js";
-import { buildAIContext, callCloudflareAI, debugPrompt, fetchABIFunctions } from "../src/ai/ai.js";
+import { buildAIContext, callCloudflareAI, debugPrompt } from "../src/ai/ai.js";
+import { fetchABIFunctions } from "../src/manifest/manifest.js";
+import { fetchExplorerABI } from "../src/ai/explorer.js";
 import { buildGraph } from "../src/graph/builder.js";
 import { TOP_SUBGRAPHS } from "../src/config.js";
 import type { VercelRequest, VercelResponse } from "./vercel-types.js";
@@ -62,9 +64,11 @@ async function runAnalysis(address: string): Promise<AnalysisResult> {
   const settled = await Promise.allSettled(top.map((sg) => analyzeSubgraph(sg, address)));
   const successful: SubgraphAnalysis[] = [];
   const errors: string[] = [];
+  let failedSubgraphs = 0;
   settled.forEach((r, i) => {
     if (r.status === "fulfilled") successful.push(r.value);
     else {
+      failedSubgraphs++;
       log("manifest:failed", { name: top[i]?.name, reason: r.reason instanceof Error ? r.reason.message : r.reason });
       errors.push(`Failed to analyze subgraph ${top[i]?.name}`);
     }
@@ -86,16 +90,37 @@ async function runAnalysis(address: string): Promise<AnalysisResult> {
   const concepts = deduplicateConcepts(successful);
   log("concepts:done", { count: concepts.length });
 
-  // Step 5: Build AI context and call AI
-  const aiContext = buildAIContext(contract, successful);
+  // Step 5: Build AI context (incl. merged/common ABI) and call AI
+  const manifestAbis = successful.flatMap((a) => a.abis ?? []);
+  log("abi:fetch:start", { manifestAbis: manifestAbis.length });
+  let abiFunctions = await fetchABIFunctions(manifestAbis);
+  log("abi:manifest:done", { count: abiFunctions.length });
+
+  // Subgraph manifests often point to relative ABI paths (not IPFS), so the
+  // manifest-based fetch can be empty. Fall back to the explorer (Etherscan).
+  if (abiFunctions.length === 0) {
+    const explorerAbi = await fetchExplorerABI(contract.address);
+    log("abi:explorer", { count: explorerAbi?.length ?? 0 });
+    if (explorerAbi?.length) abiFunctions = explorerAbi;
+  }
+  log("abi:done", { count: abiFunctions.length });
+
+  const aiContext = buildAIContext(contract, successful, abiFunctions);
   const prompt = debugPrompt(aiContext);
   log("ai:prompt", { chars: prompt.length });
   console.log("[analyze] AI prompt >>>\n" + prompt + "\n<<< AI prompt");
+
+  let aiError: string | undefined;
+  if (!process.env.CLOUDFLARE_ACCOUNT_ID || !process.env.CLOUDFLARE_API_TOKEN) {
+    aiError = "AI is not configured: add CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN to the environment.";
+  }
   const aiAnalysis = await callCloudflareAI(aiContext).catch((e) => {
-    log("ai:failed", e instanceof Error ? e.message : e);
+    const msg = e instanceof Error ? e.message : String(e);
+    log("ai:failed", msg);
+    aiError = "AI request failed — " + msg;
     return undefined;
   });
-  log("ai:done", { hasSummary: Boolean(aiAnalysis?.summary) });
+  log("ai:done", { hasSummary: Boolean(aiAnalysis?.bottomLine || aiAnalysis?.whatIsIt), aiError });
 
   // Step 6: Build graph
   const { nodes, edges } = buildGraph(contract, successful, concepts, aiAnalysis);
@@ -110,7 +135,7 @@ async function runAnalysis(address: string): Promise<AnalysisResult> {
             dataSources: a.manifest.dataSources
               .filter((d) => d.address?.toLowerCase() === address.toLowerCase())
               .slice(0, 1),
-            entities: a.manifest.entities.slice(0, 5),
+            entities: a.manifest.entities,
             eventHandlers: a.manifest.eventHandlers.slice(0, 3).map((h) => ({
               event: h.event.split("(")[0],
               handler: "",
@@ -119,23 +144,24 @@ async function runAnalysis(address: string): Promise<AnalysisResult> {
         : undefined,
       schema: a.schema
         ? {
-            entities: a.schema.entities.slice(0, 6).map((e) => ({
+            entities: a.schema.entities.map((e) => ({
               name: e.name,
-              description: e.description?.slice(0, 300),
-              fields: e.fields.slice(0, 6).map((f) => ({ name: f.name, type: f.type, description: f.description?.slice(0, 200) })),
+              description: e.description,
+              fields: e.fields.map((f) => ({ name: f.name, type: f.type, description: f.description })),
             })),
           }
         : undefined,
     })),
     concepts: concepts.slice(0, 5).map((c) => ({ concept: c.concept, confidence: c.confidence, evidence: c.evidence.slice(0, 2) })),
     aiAnalysis,
+    aiError,
     nodes,
     edges,
     errors,
     stats: {
       totalDiscovered: discovered.length,
       analyzed: successful.length,
-      failed: errors.length,
+      failed: failedSubgraphs,
       ...buildStats(successful),
     },
   };
@@ -148,7 +174,10 @@ function buildStats(analyses: SubgraphAnalysis[]) {
   let entities = 0;
   for (const a of analyses) {
     if (a.discovery.network) networks.add(a.discovery.network);
-    entities += a.schema?.entities.length ?? 0;
+    // Count entities from the GraphQL schema when available, otherwise fall
+    // back to the manifest-declared entity names (schema IPFS fetch can fail).
+    const schemaCount = a.schema?.entities?.length ?? 0;
+    entities += schemaCount > 0 ? schemaCount : (a.manifest?.entities?.length ?? 0);
     for (const d of a.manifest?.dataSources || []) {
       if (d.abi) protocols.add(d.abi);
     }

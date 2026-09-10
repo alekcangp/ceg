@@ -11,7 +11,7 @@ interface PositionedNode extends EcosystemNode {
 const TYPE_COLORS: Record<string, string> = {
   contract: "#00d4ff",
   subgraph: "#00ff9d",
-  entity: "#6b7494",
+  entity: "#8b96bd",
 };
 
 const TYPE_SHAPES: Record<string, "circle" | "hex" | "diamond"> = {
@@ -35,7 +35,10 @@ export class GraphRenderer {
   private dragStart = { x: 0, y: 0 };
   private panStart = { x: 0, y: 0 };
   private hoveredNode: string | null = null;
+  /** Entity whose popup is pinned visible (until another node is activated or reset). */
+  private pinnedNodeId: string | null = null;
   private selectedNode: string | null = null;
+  private selectedEdge: { source: string; target: string } | null = null;
   private tooltip: HTMLDivElement;
   private onNodeClick: ((node: EcosystemNode) => void) | null = null;
   private animationFrame: number | null = null;
@@ -201,19 +204,41 @@ export class GraphRenderer {
       line.setAttribute("y1", String(source.y));
       line.setAttribute("x2", String(target.x));
       line.setAttribute("y2", String(target.y));
-      line.setAttribute("stroke", TYPE_COLORS[target.type] || "#1a2035");
-      line.setAttribute("stroke-width", "1");
-      line.setAttribute("stroke-opacity", "0.3");
       line.setAttribute("class", "graph-edge");
       line.dataset.source = edge.source;
       line.dataset.target = edge.target;
 
-      if (this.hoveredNode || this.selectedNode) {
-        const active = this.hoveredNode || this.selectedNode;
-        if (edge.source !== active && edge.target !== active) {
-          line.classList.add("dimmed");
+      const isSelected =
+        this.selectedEdge !== null &&
+        ((this.selectedEdge.source === edge.source && this.selectedEdge.target === edge.target) ||
+          (this.selectedEdge.source === edge.target && this.selectedEdge.target === edge.source));
+
+      if (isSelected) {
+        // The active edge pops out; the rest stay exactly as they were.
+        line.setAttribute("class", "graph-edge edge-selected");
+        line.setAttribute("stroke", "#ffffff");
+        line.setAttribute("stroke-width", "3");
+        line.setAttribute("stroke-opacity", "1");
+      } else {
+        line.setAttribute("stroke", TYPE_COLORS[target.type] || "#1a2035");
+        line.setAttribute("stroke-width", "1");
+        line.setAttribute("stroke-opacity", "0.55");
+        // Only dim edges for node hover/selection — never for edge selection.
+        if (this.hoveredNode || this.selectedNode) {
+          const active = this.hoveredNode || this.selectedNode;
+          if (edge.source !== active && edge.target !== active) {
+            line.classList.add("dimmed");
+          }
         }
       }
+
+      // Edge click → activate this edge (highlight it), others are left alone.
+      line.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.selectedEdge = isSelected ? null : { source: edge.source, target: edge.target };
+        this.updatePositions();
+      });
+
       this.edgeGroup.appendChild(line);
     }
 
@@ -270,7 +295,9 @@ export class GraphRenderer {
       g.addEventListener("click", (e) => {
         e.stopPropagation();
         this.selectedNode = node.id;
+        this.pinnedNodeId = node.id;
         this.onNodeClick?.(node);
+        this.showTooltipFor(node);
         this.updatePositions();
       });
 
@@ -333,43 +360,70 @@ export class GraphRenderer {
     this.hoveredNode = id;
     const node = this.nodeMap.get(id);
     if (!node) return;
-
-    const rect = this.svg.getBoundingClientRect();
-    const containerRect = this.svg.parentElement?.getBoundingClientRect();
-    if (!containerRect) return;
-
-    this.tooltip.innerHTML = this.buildTooltip(node);
-    this.tooltip.classList.remove("hidden");
-
-    const tx = node.x - rect.left + 15;
-    const ty = node.y - rect.top + 15;
-    this.tooltip.style.left = `${tx}px`;
-    this.tooltip.style.top = `${ty}px`;
-
+    this.showTooltipFor(node);
     this.updatePositions();
   }
 
   private onHoverEnd() {
     this.hoveredNode = null;
+    // If an entity is pinned active, keep its popup visible instead of hiding it.
+    if (this.pinnedNodeId) {
+      const node = this.nodeMap.get(this.pinnedNodeId);
+      if (node) {
+        this.showTooltipFor(node);
+        this.updatePositions();
+        return;
+      }
+    }
     this.tooltip.classList.add("hidden");
     this.updatePositions();
+  }
+
+  /** Render the popup for a node and position it, clamped inside the visible area. */
+  private showTooltipFor(node: PositionedNode) {
+    this.tooltip.innerHTML = this.buildTooltip(node);
+    this.tooltip.classList.remove("hidden");
+
+    // Node positions are in the SVG/container space; scale/pan shift them on screen.
+    const rect = this.svg.getBoundingClientRect();
+    const cw = rect.width;
+    const ch = rect.height;
+    let tx = node.x * this.scale + this.panX + 15;
+    let ty = node.y * this.scale + this.panY + 15;
+
+    // Keep the popup fully inside the visible view so it is never cut off.
+    const tipW = this.tooltip.offsetWidth || 230;
+    const tipH = this.tooltip.offsetHeight || 120;
+    tx = Math.max(4, Math.min(cw - tipW - 4, tx));
+    ty = Math.max(4, Math.min(ch - tipH - 4, ty));
+    this.tooltip.style.left = `${tx}px`;
+    this.tooltip.style.top = `${ty}px`;
   }
 
   private buildTooltip(node: PositionedNode): string {
     const meta = node.metadata || {};
     const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
-    let html = `<div class="tooltip-label">${esc(node.label)}</div>`;
 
-    if (node.type === "subgraph") {
-      html += `<div class="tooltip-meta">${esc(meta.network || "")}</div>`;
-      if (meta.description) html += `<div class="tooltip-meta">${esc(String(meta.description).slice(0, 80))}…</div>`;
-    } else if (node.type === "entity") {
-      if (meta.description) html += `<div class="tooltip-meta">${esc(String(meta.description).slice(0, 80))}</div>`;
-      html += `<div class="tooltip-meta">From: ${esc(meta.subgraph || "")}</div>`;
-    } else if (node.type === "contract") {
-      html += `<div class="tooltip-meta">${esc(meta.address || node.label)}</div>`;
+    // Contract popup: only the full address.
+    if (node.type === "contract") {
+      return `<div class="tooltip-meta tooltip-ipfs">${esc(meta.address || node.label)}</div>`;
     }
 
+    // Subgraph popup: full IPFS hash + network.
+    if (node.type === "subgraph") {
+      let html = `<div class="tooltip-meta tooltip-ipfs">${esc(meta.fullIpfsHash || node.label)}</div>`;
+      if (meta.network) html += `<div class="tooltip-meta">${esc(meta.network)}</div>`;
+      return html;
+    }
+
+    // Entity popup: entity name + field names (no types), one per line.
+    let html = `<div class="tooltip-label">${esc(node.label)}</div>`;
+    const fields = (meta.fields as Array<{ name: string; type?: string }> | undefined) || [];
+    if (fields.length) {
+      html += `<div class="tooltip-meta tooltip-fields">${fields
+        .map((f) => esc(f.name || ""))
+        .join("<br>")}</div>`;
+    }
     return html;
   }
 
@@ -387,6 +441,12 @@ export class GraphRenderer {
         }
       } else {
         panning = true;
+        // Clicking empty space always closes the popup and clears any active selection.
+        this.selectedEdge = null;
+        this.selectedNode = null;
+        this.pinnedNodeId = null;
+        this.tooltip.classList.add("hidden");
+        this.updatePositions();
         this.panStart = { x: e.clientX - this.panX, y: e.clientY - this.panY };
       }
       this.isDragging = true;
@@ -459,6 +519,22 @@ export class GraphRenderer {
     this.scale = 1;
     this.panX = 0;
     this.panY = 0;
+    this.selectedNode = null;
+    this.selectedEdge = null;
+    this.hoveredNode = null;
+    this.pinnedNodeId = null;
+    this.tooltip.classList.add("hidden");
     this.mainGroup.setAttribute("transform", "translate(0, 0) scale(1)");
+    this.updatePositions();
+  }
+
+  /** Programmatically clear current edge/node selection (e.g. from a reset button). */
+  resetSelection() {
+    this.selectedNode = null;
+    this.selectedEdge = null;
+    this.hoveredNode = null;
+    this.pinnedNodeId = null;
+    this.tooltip.classList.add("hidden");
+    this.updatePositions();
   }
 }

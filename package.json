@@ -1,5 +1,5 @@
 {
-  "name": "contract-ecosystem-graph",
+  "name": "co-eco-graph",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -8,7 +8,8 @@
     "dev:api": "node --env-file=.env --import tsx dev-api.ts",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "smoke": "tsx scripts/smoke.ts"
   },
   "dependencies": {
     "yaml": "^2.5.0"

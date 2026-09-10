@@ -225,6 +225,13 @@ body {
 
 .tooltip-label { font-weight: 500; color: var(--cyan); margin-bottom: 4px; }
 .tooltip-meta { color: var(--text-dim); font-size: 0.75rem; }
+.tooltip-ipfs {
+  color: var(--cyan);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  word-break: break-all;
+  line-height: 1.4;
+}
 
 /* Info panel */
 .info-panel {
@@ -315,6 +322,50 @@ body {
 .stat-value { font-size: 1.4rem; font-weight: 600; color: var(--cyan); }
 .stat-label { font-size: 0.72rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.1em; }
 
+/* Ecosystem overview (networks / protocols / roles by name) */
+.overview-section { margin-bottom: 28px; }
+.overview-grid { display: flex; flex-direction: column; gap: 14px; }
+.overview-label {
+  font-size: 0.7rem;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin-bottom: 6px;
+}
+.overview-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.overview-chip {
+  font-size: 0.78rem;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 4px 12px;
+  background: var(--bg-card);
+  color: var(--text);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ai-fallback { font-style: italic; color: var(--text-dim); }
+
+.ai-block {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin-bottom: 12px;
+}
+.ai-block-title {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--cyan);
+  margin-bottom: 6px;
+}
+.ai-block-text {
+  font-size: 0.9rem;
+  color: var(--text);
+  line-height: 1.7;
+}
+
 /* AI section */
 .ai-section {
   margin-bottom: 32px;
@@ -359,6 +410,39 @@ body {
 /* Sources */
 .sources-section { margin-bottom: 40px; }
 
+.sources-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.sources-table th {
+  text-align: left;
+  padding: 8px 10px;
+  color: var(--text-dim);
+  font-weight: 500;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border);
+}
+
+.sources-table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.sources-table td.mono {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--cyan);
+}
+
+.sources-table tbody tr:hover { background: rgba(255, 255, 255, 0.02); }
+
 .source-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -382,6 +466,37 @@ body {
 .source-meta a { color: var(--purple); text-decoration: none; }
 .source-meta a:hover { text-decoration: underline; }
 
+.source-detail {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.source-detail-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+.src-k {
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.66rem;
+  white-space: nowrap;
+  padding-top: 1px;
+}
+.src-v {
+  font-family: var(--mono);
+  color: var(--text);
+  word-break: break-all;
+  text-align: right;
+}
+.src-v.mono { color: var(--cyan); }
+
 /* Empty state */
 .empty-state {
   text-align: center;
@@ -397,15 +512,34 @@ body {
 /* SVG node styles */
 .graph-node { cursor: pointer; transition: opacity 0.2s; }
 .graph-node:hover { opacity: 0.85; }
-.graph-edge { transition: opacity 0.2s; }
-.graph-edge.dimmed { opacity: 0.1; }
-.graph-node.dimmed { opacity: 0.2; }
+.graph-edge { transition: opacity 0.2s, stroke 0.2s; cursor: pointer; pointer-events: stroke; }
+.graph-edge.dimmed { opacity: 0.4; }
+.graph-edge.edge-selected {
+  filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.85));
+  animation: edgePulse 1.3s ease-in-out infinite;
+  cursor: pointer;
+}
+@keyframes edgePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.graph-node.dimmed { opacity: 0.45; }
 .graph-node.highlighted { opacity: 1; }
+
+.tooltip-fields {
+  color: var(--cyan);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+.tooltip-src { color: var(--text-faint); font-size: 0.68rem; margin-top: 2px; }
 
 .node-label {
   font-family: var(--font);
   font-size: 11px;
-  fill: var(--text-dim);
+  font-weight: 500;
+  fill: #c9d2e8;
   text-anchor: middle;
   pointer-events: none;
   user-select: none;
