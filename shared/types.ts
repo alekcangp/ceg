@@ -112,6 +112,8 @@ export interface AIAnalysis {
   bottomLine: string;
   /** "Risky business?" — friendly risks & caveats of interacting with it. */
   riskyBusiness: string;
+  /** "Once upon a time..." — short fairytale story about the contract, grounded in real analysis data. */
+  story: string;
   roles: AIRole[];
   concepts: SemanticConcept[];
   /** Short honest caveats / ambiguity warnings from the AI. */

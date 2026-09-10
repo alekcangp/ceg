@@ -2,7 +2,7 @@ import type { AnalysisResult, Contract, SubgraphAnalysis } from "../shared/types
 import { discoverSubgraphs, rankSubgraphs } from "../src/discovery/discovery.js";
 import { analyzeSubgraph } from "../src/manifest/manifest.js";
 import { deduplicateConcepts } from "../src/normalization/normalization.js";
-import { buildAIContext, callCloudflareAI, debugPrompt } from "../src/ai/ai.js";
+import { buildAIContext, callCloudflareAI, debugPrompt, buildLocalStory } from "../src/ai/ai.js";
 import { fetchABIFunctions } from "../src/manifest/manifest.js";
 import { buildGraph } from "../src/graph/builder.js";
 import type { VercelRequest, VercelResponse } from "./vercel-types.js";
@@ -154,8 +154,30 @@ async function runAnalysis(address: string): Promise<AnalysisResult> {
   });
   log("ai:done", { hasSummary: Boolean(aiAnalysis?.bottomLine || aiAnalysis?.whatIsIt), aiError });
 
+  // Step 5b: Fallback fairytale from real data when AI is missing or silent on story.
+  let finalAi = aiAnalysis;
+  if (!finalAi?.story) {
+    const STANDARD = new Set(["transfer", "transferfrom", "approve", "balanceof", "allowance", "decimals", "symbol", "name", "totalsupply"]);
+    const abiNames = abiFunctions.map((f) => f.name).filter((n) => n && !STANDARD.has(n.toLowerCase()));
+    const entityNames = [...new Set(analyzedList.flatMap((a) => a.schema?.entities.map((e) => e.name) ?? a.manifest?.entities ?? []))].slice(0, 8);
+    const networks = [...new Set(analyzedList.map((a) => a.discovery.network).filter((n): n is string => Boolean(n)))];
+    const story = buildLocalStory({
+      roles: finalAi?.roles?.map((r) => r.role) ?? concepts.slice(0, 1).map((c) => c.concept),
+      abiNames,
+      entityNames,
+      networks,
+      subgraphCount: analyzedList.length,
+      salt: contract.address,
+    });
+    if (finalAi) finalAi.story = story;
+    else if (!aiError) {
+      // AI not configured but data exists — still give the tale alone.
+      finalAi = { whatIsIt: "", whatItCanDo: "", ecosystemTracking: "", riskyBusiness: "", bottomLine: "", story, roles: [], concepts: [] };
+    }
+  }
+
   // Step 6: Build graph
-  const { nodes, edges } = buildGraph(contract, analyzedList, concepts, aiAnalysis);
+  const { nodes, edges } = buildGraph(contract, analyzedList, concepts, finalAi);
   log("graph:done", { nodes: nodes.length, edges: edges.length });
 
   return {
@@ -185,7 +207,7 @@ async function runAnalysis(address: string): Promise<AnalysisResult> {
         : undefined,
     })),
     concepts: concepts.slice(0, 5).map((c) => ({ concept: c.concept, confidence: c.confidence, evidence: c.evidence.slice(0, 2) })),
-    aiAnalysis,
+    aiAnalysis: finalAi,
     aiError,
     nodes,
     edges,

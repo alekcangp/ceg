@@ -342,12 +342,27 @@ function renderAI(result: AnalysisResult) {
 
   const ai = result.aiAnalysis;
 
+  // 📖 Owl parable — the moral, not a retelling
+  if (ai.story) {
+    const tale = document.createElement("div");
+    tale.className = "ai-block ai-story";
+    const t = document.createElement("div");
+    t.className = "ai-block-title";
+    t.textContent = "🦉 The Owl's Parable — one line of tavern wisdom";
+    const p = document.createElement("p");
+    p.className = "ai-block-text ai-story-text";
+    p.textContent = ai.story;
+    tale.appendChild(t);
+    tale.appendChild(p);
+    section.appendChild(tale);
+  }
+
   const blocks: Array<[string, string]> = [
-    ["🐉 What beast is this? (the contract, plainly)", ai.whatIsIt],
-    ["🪄 What spells can it cast? (what it can do)", ai.whatItCanDo],
-    ["🧚 Pixie gossip (ecosystem tracking)", ai.ecosystemTracking],
-    ["⚠️ Dragon warnings! (risks, kindly)", ai.riskyBusiness],
-    ["🌟 Moral of the story (bottom line)", ai.bottomLine],
+    ["🐉 What beast be this? — the contract, plainly", ai.whatIsIt],
+    ["🪄 What spells can it cast? — its powers, simply", ai.whatItCanDo],
+    ["🧚 Pixie gossip — where this beast roams (ecosystem)", ai.ecosystemTracking],
+    ["⚠️ Dragon warnings! — fine print, kindly (risks)", ai.riskyBusiness],
+    ["🌟 Moral o' the story — bottom line over butterbeer", ai.bottomLine],
   ];
   for (const [title, text] of blocks) {
     if (!text) continue;

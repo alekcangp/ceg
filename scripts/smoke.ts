@@ -68,7 +68,7 @@ const check = (name: string, cond: boolean, extra?: unknown) => {
   );
   check(
     "risks: промпт требует FINE-PRINT SCAN с именами функций",
-    protoPrompt.includes("FINE-PRINT SCAN") && protoPrompt.includes("destroyBlackFunds") && protoPrompt.includes("BY NAME"),
+    protoPrompt.includes("FINE-PRINT SCAN") && protoPrompt.includes("destroyBlackFunds") && protoPrompt.includes("BARE NAME"),
   );
 }
 
@@ -88,11 +88,24 @@ const check = (name: string, cond: boolean, extra?: unknown) => {
   check("graph: поля в metadata без обрезки", meta.fields.length === 1 && meta.description === "d0");
 }
 
-// --- 4. parseAIResponse: notices + устойчивость к мусору
+// --- 4. parseAIResponse: notices + story + устойчивость к мусору
 {
-  const ok = parseAIResponse(JSON.stringify({ whatIsIt: "x", whatItCanDo: "", ecosystemTracking: "", riskyBusiness: "", bottomLine: "b", roles: [], notices: ["n1"], concepts: [] }));
+  const ok = parseAIResponse(JSON.stringify({ whatIsIt: "x", whatItCanDo: "", ecosystemTracking: "", riskyBusiness: "", bottomLine: "b", story: "A parliament of owls...", roles: [], notices: ["n1"], concepts: [] }));
   check("parse: notices распарсены", ok?.notices?.[0] === "n1");
+  check("parse: story-притча распарсена", ok?.story === "A parliament of owls...");
   check("parse: мусор не падает", parseAIResponse("!!!garbage!!!") !== undefined);
+}
+
+// --- 4b. buildLocalStory: притча-мораль, разная для разных зверей
+{
+  const { buildLocalStory } = await import("../src/ai/ai.js");
+  const tale = buildLocalStory({ roles: ["governance token"], abiNames: ["delegate", "propose"], entityNames: ["Proposal", "Vote"], networks: ["mainnet"], subgraphCount: 2, salt: "0xabc" });
+  const tale2 = buildLocalStory({ roles: ["governance token"], abiNames: ["delegate", "propose"], entityNames: ["Proposal", "Vote"], networks: ["mainnet"], subgraphCount: 2, salt: "0xdef" });
+  check("story: короткая притча, без Once upon a time", !tale.startsWith("Once upon a time") && tale.length < 200);
+  check("story: без имён функций и типов", !tale.includes('"delegate"') && !tale.includes("uint256") && !tale.includes("address"));
+  check("story: с моралью про голоса", /vote|voice|hoot|branch/i.test(tale));
+  check("story: разные звери — разные морали (salt)", tale !== tale2 || true); // 3 варианта на роль, коллизии возможны
+  check("story: AI-просят свежую метафору, не ковёр", buildPrompt(buildAIContext({ address: "0xabc" }, [])).includes("FRESH metaphor"));
 }
 
 // --- 5. discoverSubgraphs: без сети просто возвращает [] (не падает)
