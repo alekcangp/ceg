@@ -190,12 +190,8 @@ export function buildPrompt(context: { contract: string; subgraphs: unknown[]; a
     ? abiFunctions
         .slice(0, 40)
         .map((fn) => {
-          const inParams = fn.inputs.length
-            ? `(${fn.inputs.map((i) => `${i.name ? i.name + ": " : ""}${i.type}`).join(", ")})`
-            : "()";
-          const outParams = fn.outputs.length ? ` → [${fn.outputs.map((o) => o.type).join(", ")}]` : "";
-          const mut = fn.stateMutability ? ` [${fn.stateMutability}]` : "";
-          return `    - ${fn.name}${inParams}${outParams}${mut}`;
+          const params = fn.inputs.length ? `(${fn.inputs.map((i) => i.name || "_").join(", ")})` : "()";
+          return `    - ${fn.name}${params}`;
         })
         .join("\n")
     : "    (no ABI could be fetched for this contract)";
@@ -223,27 +219,22 @@ ${abiFunctions.length ? `🔩 CONTRACT ABI:\n${abiBlock}` : ""}
 • If ABI is missing or very sparse, add a notice about limited ABI data.
 
 🪄 ROLES — let the data speak:
-A role is a FUNCTION this contract performs in its ecosystem (what it DOES), not what "type" of contract it is.
-Analyze the ABI functions + subgraph entities + data sources to determine roles. Examples:
-- swap/swapExact*/fillOrder → "Swap Aggregation" or "DEX Routing"
-- deposit/withdraw/wrap/unwrap → "Wrapping" or "Liquidity Management"
-- lock/release/bridge → "Bridge Relayer"
-- vote/delegate/propose → "Governance"
-- stake/claimReward → "Staking"
-- pause/blacklist → "Pausable/Controlled"
-- transfer/approve only → "Fungible Token" or "Payment Handler"
-- weth/ether handling (from entities) → "Wrapped Token"
+A role is WHAT this contract DOES in its ecosystem (its function), not what "type" of contract it is.
+Look at ABI function names + subgraph entities + data sources. Describe each role in 1-3 words describing the action:
+- For contracts that move assets: "Token Transfer", "Swap Aggregation", "Liquidity Provision", "Bridge Relayer"
+- For contracts that manage/govern: "Governance", "Access Control", "Parameter Configuration"
+- For contracts that create/destroy: "Asset Minting", "Wrapping", "Issuance Platform"
+- For contracts that hold/lock: "Vault", "Custody", "Staking"
+- When you see transfer/approve: likely a token or payment handler — check entities for more context
+- When you see weth/ether entities: likely "Wrapped Token"
 
-If ABI is sparse (only events/no functions), rely on ENTITY NAMES + DATA SOURCES:
-- Transaction, Block, wethTransaction → likely a wrapping/transfer service
-- Pool, Swap → liquidity/DEX
-- Proposal, Vote → governance
+If ABI is sparse (only events/no functions), rely on ENTITY NAMES + DATA SOURCES for clues.
 
-IMPORTANT: NOT every contract is a token. If ABI has no transfer/approve, it's likely NOT a token.
-Output 1-3 roles that best describe what this contract DOES.
+Output 1-3 roles. Use confidence: HIGH (clear evidence), MEDIUM (some evidence), LOW (uncertain).
+If ABI is very sparse, add a notice about limited data.
 
 🗨️ OUTPUT as JSON only (no markdown). Each section must have UNIQUE meaning — do NOT repeat the same idea in different sections:
-1. "whatIsIt" — What is this thing? Describe its primary function based on ABI + subgraph data. Do NOT assume it's a token unless ABI shows transfer/approve.
+1. "whatIsIt" — What is this thing? Describe its primary function based on ABI + subgraph data. Do NOT assume a specific type — let the data tell you what it is.
 2. "whatItCanDo" — Fantasy description of its powers. NO function names, NO technical terms. Use metaphors: "It can weave swaps across many markets" not "it has swapExactTokensForTokens". Focus on WHAT it does for users, not HOW.
 3. "ecosystemTracking" — Where this beast roams. Describe the ecosystem it serves, who uses it, what problem it solves. NO function names.
 4. "riskyBusiness" — Hidden dangers in plain language. NO function names. Describe risks as "The masters can freeze all activity" not "pause() function". Friendly heads-up, not horror.
