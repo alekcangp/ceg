@@ -130,11 +130,10 @@ async function runAnalysis(address: string): Promise<AnalysisResult> {
   log("concepts:done", { count: concepts.length });
 
   // Step 5: Build AI context (incl. merged/common ABI from subgraph manifests) and call AI.
-  // ABI sources are The Graph/IPFS only: fetchABIFunctions resolves manifest ABI
-  // references that carry an IPFS hash and skips the rest.
-  const manifestAbis = analyzedList.flatMap((a) => a.abis ?? []);
-  log("abi:fetch:start", { manifestAbis: manifestAbis.length });
-  const abiFunctions = await fetchABIFunctions(manifestAbis);
+  // All subgraphs index the same contract, so ABI is identical — fetch once from the first available.
+  const firstAbis = analyzedList.find((a) => a.abis && a.abis.length > 0)?.abis ?? [];
+  log("abi:fetch:start", { abiSources: firstAbis.length });
+  const abiFunctions = await fetchABIFunctions(firstAbis);
   log("abi:done", { count: abiFunctions.length });
 
   const aiContext = buildAIContext(contract, analyzedList, abiFunctions);
