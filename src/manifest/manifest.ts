@@ -326,11 +326,15 @@ function parseFields(body: string): Field[] {
 /** Fetch ABI JSON from IPFS and extract function signatures with consensus filtering.
  * Fetches in parallel with a concurrency limit to avoid throttling the IPFS gateway.
  *
- * Different subgraphs often reference different (often incomplete or even wrong) ABI
- * files for the same contract. To avoid phantom functions from a single quirky ABI
- * polluting the picture, a function is only kept when it is present in >=2 distinct
- * ABI files (consensus). If only a single ABI file is available, all its functions
- * are kept (no consensus can be formed).
+ * Different subgraphs often reference different (incomplete or wrong) ABI files for
+ * the same contract. Strategy:
+ *  - Functions present in >=2 distinct ABI files form the CONSENSUS CORE — safe,
+ *    corroborated by several subgraphs.
+ *  - A complete official ABI (e.g. the full Tether ABI) may be the ONLY file that
+ *    carries risk/control functions (pause, blacklist, issue, redeem, ...). Those
+ *    are important and MUST NOT be dropped. We therefore also include ALL functions
+ *    from the LARGEST ABI file that still covers a substantial part of the consensus
+ *    core (it is an extension of the common interface, not a mismatched template).
  */
 export async function fetchABIFunctions(
   abis: { name: string; file: string }[]
@@ -379,15 +383,41 @@ export async function fetchABIFunctions(
     }
   }
 
-  // Consensus: only one ABI file overall -> keep everything, otherwise keep
-  // functions present in >=2 distinct ABI files.
-  const singleFile = perFile.length <= 1;
-  const minFileCount = singleFile ? 1 : 2;
+  // Consensus core: functions corroborated by >=2 distinct ABI files
+  const coreSignatures = new Set<string>();
+  for (const [sig, files] of sigToFileCount) {
+    if (files.size >= 2) coreSignatures.add(sig);
+  }
+
+  // Pick the canonical (complete) ABI: the largest file that still covers
+  // >=50% of the consensus core, so it is an extension of the common interface
+  // rather than a mismatched/unrelated ABI template.
+  let canonicalFile: Set<string> | null = null;
+  if (coreSignatures.size > 0 && perFile.length > 1) {
+    for (const file of perFile) {
+      const fileSigs = new Set(file.map((fn) => `${fn.name}(${fn.inputs.map((i) => i.type).join(",")})`));
+      let overlap = 0;
+      for (const sig of coreSignatures) if (fileSigs.has(sig)) overlap++;
+      const coverage = overlap / coreSignatures.size;
+      if (coverage < 0.5) continue;
+      if (!canonicalFile || fileSigs.size > canonicalFile.size) canonicalFile = fileSigs;
+    }
+  }
+
+  // Result = consensus core (+ canonical ABI's functions, incl. risk/control funcs)
+  const signatureSet = new Set<string>(coreSignatures);
+  if (canonicalFile) {
+    for (const sig of canonicalFile) signatureSet.add(sig);
+  }
 
   const result: ABIFunction[] = [];
-  for (const [sig, fn] of sigToFunction) {
-    if ((sigToFileCount.get(sig)?.size ?? 0) >= minFileCount) {
-      result.push(fn);
+  if (signatureSet.size === 0) {
+    // Fallback: single ABI file (or no corroboration) -> keep everything
+    for (const [sig, fn] of sigToFunction) result.push(fn);
+  } else {
+    for (const sig of signatureSet) {
+      const fn = sigToFunction.get(sig);
+      if (fn) result.push(fn);
     }
   }
   return result;

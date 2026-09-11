@@ -240,20 +240,21 @@ If ABI is very sparse, add a notice about limited data.
 - whatItCanDo, ecosystemTracking, riskyBusiness, story, bottomLine = FANTASY METAPHORS only
 
 ⚠️ FANTASY RULES:
-- NO technical claims about what the contract CAN or CANNOT do
-- NO mentions of ownership, control, freezing, minting, pausing - unless explicitly in ABI
-- PURE METAPHOR: compare to magical creatures, spells, potions, scrolls
-- If ABI shows no special powers: describe as "a simple, honest creature with no hidden tricks"
-- NEVER invent risks or powers not supported by data
+- The ONLY source of truth is the SUBGRAPH ECOSYSTEM below. You know this beast ONLY through the lands that record it (indexed subgraphs). Never claim anything beyond what the data shows.
+- Treat The Graph as a fantasy country: each subgraph is a territory/observatory/town that watches this beast; each network is a different realm; indexed entities are what the locals call it; ABI funcs are its visible motions as the townsfolk recorded them.
+- The fantasy is ABOUT where and how the beast is SEEN and USED across this land (which territories index it, on which realms, as what), NOT hard technical claims about its internals.
+- NO absolute claims like "it can/cannot X", "masters control it", "it freezes/mints/pauses" — unless that exact function is in the ABI data. Prefer "locals say it...", "in the realm of X it is watched for...".
+- REMEMBER the map may be PARTIAL: the land only knows what its watchers recorded. Traces can look distorted compared to the real beast. If data is sparse, say the watchers see only glimpses.
+- NEVER invent risks, powers, territories, or realms not present in the data.
 
 1. "whatIsIt" (FACT) — What is this thing? Describe its primary function based on ABI + subgraph data. Do NOT assume a specific type.
-2. "whatItCanDo" (FANTASY) — Metaphor only. "It weaves swaps across many markets" not "it can swap tokens". NO function names.
-3. "ecosystemTracking" (FANTASY) — Metaphor only. Where this beast roams, what realm it serves.
-4. "riskyBusiness" (FANTASY) — Metaphor only. If ABI shows risks: "Dangerous claws (pause, blacklist)". If no risks: "A gentle beast with no hidden dangers". Quote function names ONLY if they exist in ABI.
-5. "bottomLine" (FANTASY) — One sentence metaphor.
+2. "whatItCanDo" (FANTASY) — Metaphor about what the beast is literally SEEN doing in the lands, grounded in ABI/data (e.g. "in the markets it is watched swapping treasures" only if swap functions/entities exist). NO function names. "It weaves swaps across many markets" not "it can swap tokens".
+3. "ecosystemTracking" (FANTASY) — The heart of this tale: the SUBGRAPH KINGDOM. Describe the terrain and who watches this beast, grounded ONLY in the data — which realms (networks), how many territories (subgraphs) and what they call it (entities/graph names). E.g. "Watchers in N realms track it, each region filing its own scrolls". NEVER name tokens/contracts not in the data. Always note the map is partial.
+4. "riskyBusiness" (FANTASY) — Metaphor about perils the watchers whisper about, grounded ONLY in ABI risk funcs if present (pause/blacklist/deprecate...). If none: "the watchers see no traps". Quote bare names ONLY if in ABI. Never invent risks.
+5. "bottomLine" (FANTASY) — One sentence metaphor summing up what the beast is, in the land's eyes.
 6. "story" (FANTASY) — Pure metaphor (2-3 sentences, <60 words). NO tech words.
 7. "roles" (FACT) — {role, confidence}. Based on ABI + entities. NEVER empty.
-8. "notices" (FACT) — Up to 4 caveats about data limitations.
+8. "notices" (FACT) — Up to 4 caveats about data limitations. ALWAYS include one caveat that this map is only The Graph's records and may be partial or look distorted vs the real world (indexed subgraphs can be incomplete or misconfigured).
 9. "concepts" (FACT) — {confidence, evidence}.
 
 {
