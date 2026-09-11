@@ -4,30 +4,18 @@ Discover how a smart contract is used across the indexed Web3 ecosystem.
 
 Paste any contract address and watch its subgraph ecosystem come alive — entities, data sources, event handlers, and AI-powered interpretation, all in one interactive graph.
 
+![Screenshot](Screenshot.png)
+
 ## ETHOnline 2026 — The Graph Prize
 
-This project is built for [ETHOnline 2026](https://ethglobal.com/events/ethonline2026) and eligible for **The Graph** prize track ($15,000 total).
-
-### Eligible tracks
-
-- **🤖 Best AI Tooling or AI Use Case with The Graph** — Co-Eco-Graph uses The Graph as its live source of blockchain data and layers AI (Cloudflare Workers AI) on top for semantic interpretation of contract ecosystems. It queries the Graph Network subgraph to discover deployments, fetches manifests and schemas from IPFS, then sends structured context to an LLM for analysis.
-
-- **🧩 Best Use of Composable or Standardized Graph Products** — The app composes multiple Graph products: subgraph discovery via the Graph Network subgraph, IPFS manifest fetching, and GraphQL schema parsing. It demonstrates how standardized subgraph data can be queried, deduplicated, and visualized across protocols.
+This project is built for [ETHOnline 2026](https://ethglobal.com/events/ethonline2026).
 
 ### Key integrations with The Graph
 
 - Queries the **Graph Network Subgraph** to discover subgraph deployments indexing a contract
 - Fetches **subgraph manifests** from IPFS (inline or by ipfsHash)
 - Parses **GraphQL schemas** from IPFS to extract entities and fields
-- Deduplicates semantic concepts across multiple subgraphs
-- Sends structured context to AI for cross-subgraph pattern recognition
 
-### Submission requirements
-
-- [x] Public repository
-- [x] Consumes live data from The Graph (not mocked/static)
-- [x] Uses The Graph as a load-bearing part of the project
-- [ ] Demo video (2-4 minutes) — *to be recorded*
 
 ## Quick Start
 
