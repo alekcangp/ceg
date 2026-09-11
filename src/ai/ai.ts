@@ -215,25 +215,31 @@ ${abiFunctions.length ? `🔩 CONTRACT ABI:\n${abiBlock}` : ""}
 • Data is pre-filtered to the queried contract. Do NOT compare to other contracts, do NOT name other tokens.
 • "abi:" label = subgraph author's interface name. Generic labels (ERC20, Token) = just "it's a token".
 • NOT every contract is a token. If ABI has no transfer/approve functions, it's likely NOT a token.
-• Real identity comes from what the contract DOES — analyze ABI function names and subgraph entities.
+• Subgraph ABI may be INCOMPLETE — often only has events, not full function list. When ABI is sparse, rely MORE on subgraph entities and data sources to infer the role.
+• Real identity comes from what the contract DOES — analyze ABI function names + subgraph entities + data sources.
 • NEVER name the contract/issuer/brand from memory. Names ONLY when verbatim in data for a matching dataSource.
 • Never invent functions, entities, events or facts not in the data.
 • Risks: hunt for pause/blacklist/deprecate/upgradeTo/addOwner/setFees/selfdestruct. Quote each by bare name only.
+• If ABI is missing or very sparse, add a notice about limited ABI data.
 
 🪄 ROLES — let the data speak:
 A role is a FUNCTION this contract performs in its ecosystem (what it DOES), not what "type" of contract it is.
-Analyze the ABI functions + subgraph entities to determine roles. Examples by ABI pattern:
-- swap/swapExact*/fillOrder/uniswapV3Swap → "Swap Aggregation" or "DEX Routing"
-- addLliquidity/deposit/withdraw/mintShares → "Liquidity Management" or "Vault"
-- lock/release/mint/burn (cross-chain) → "Bridge Relayer"
+Analyze the ABI functions + subgraph entities + data sources to determine roles. Examples:
+- swap/swapExact*/fillOrder → "Swap Aggregation" or "DEX Routing"
+- deposit/withdraw/wrap/unwrap → "Wrapping" or "Liquidity Management"
+- lock/release/bridge → "Bridge Relayer"
 - vote/delegate/propose → "Governance"
 - stake/claimReward → "Staking"
-- pause/blacklist → "Pausable/Controlled" (note in risks)
-- transfer/approve only → could be a token OR just a payment handler — check subgraph entities for context
-- No clear pattern → describe the primary function you see
+- pause/blacklist → "Pausable/Controlled"
+- transfer/approve only → "Fungible Token" or "Payment Handler"
+- weth/ether handling (from entities) → "Wrapped Token"
 
-IMPORTANT: NOT every contract is a token. If ABI has no transfer/approve, it's likely NOT a token — don't force token roles.
-If subgraph data is sparse, rely on ABI function names to infer the role.
+If ABI is sparse (only events/no functions), rely on ENTITY NAMES + DATA SOURCES:
+- Transaction, Block, wethTransaction → likely a wrapping/transfer service
+- Pool, Swap → liquidity/DEX
+- Proposal, Vote → governance
+
+IMPORTANT: NOT every contract is a token. If ABI has no transfer/approve, it's likely NOT a token.
 Output 1-3 roles that best describe what this contract DOES.
 
 🗨️ OUTPUT as JSON only (no markdown). Each section must have UNIQUE meaning — do NOT repeat the same idea in different sections:
