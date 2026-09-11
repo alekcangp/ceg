@@ -206,7 +206,14 @@ function parseManifest(yamlText: string, _contractAddress: string): ParsedManife
       }
     }
 
-    // ABI file references from this data source's mapping
+    // ABI file references from this data source's mapping.
+    // A manifest may list several ABI files per data source (e.g. the contract's
+    // own ABI plus auxiliary token/ERC20 ABIs used by its handlers). Only the
+    // PRIMARY ABI — the one whose name matches dataSource.source.abi — describes
+    // the queried contract itself. Auxiliary ABIs describe OTHER contracts and
+    // must NOT be merged into role detection, otherwise phantom functions from
+    // unrelated tokens pollute the result.
+    const srcAbiName = srcBlock?.abi ? String(srcBlock.abi) : undefined;
     if (mapping?.abis && Array.isArray(mapping.abis)) {
       for (const abi of mapping.abis) {
         if (!abi || typeof abi !== "object") continue;
@@ -220,6 +227,8 @@ function parseManifest(yamlText: string, _contractAddress: string): ParsedManife
           const link = fileVal as Record<string, string>;
           if (link["/"]) file = link["/"];
         }
+        // Skip auxiliary ABIs that don't match the data source's own ABI alias.
+        if (srcAbiName && name && name.toLowerCase() !== srcAbiName.toLowerCase()) continue;
         if (name && file) rawAbis.push({ name, file });
       }
     }
@@ -314,13 +323,18 @@ function parseFields(body: string): Field[] {
   return fields;
 }
 
-/** Fetch ABI JSON from IPFS and extract only function signatures (deduplicated).
- * Fetches in parallel with a concurrency limit to avoid throttling the IPFS gateway. */
+/** Fetch ABI JSON from IPFS and extract function signatures with consensus filtering.
+ * Fetches in parallel with a concurrency limit to avoid throttling the IPFS gateway.
+ *
+ * Different subgraphs often reference different (often incomplete or even wrong) ABI
+ * files for the same contract. To avoid phantom functions from a single quirky ABI
+ * polluting the picture, a function is only kept when it is present in >=2 distinct
+ * ABI files (consensus). If only a single ABI file is available, all its functions
+ * are kept (no consensus can be formed).
+ */
 export async function fetchABIFunctions(
   abis: { name: string; file: string }[]
 ): Promise<ABIFunction[]> {
-  const allFunctions: ABIFunction[] = [];
-  const seenSignatures = new Set<string>();
   const seenFiles = new Set<string>();
 
   // Deduplicate files to avoid fetching the same IPFS hash multiple times
@@ -331,34 +345,52 @@ export async function fetchABIFunctions(
     return true;
   });
 
-  // Process in chunks of 3 for controlled parallelism
+  // Fetch each ABI file -> list of functions
   const CONCURRENCY = 3;
+  const perFile: ABIFunction[][] = [];
   for (let i = 0; i < uniqueAbis.length; i += CONCURRENCY) {
     const chunk = uniqueAbis.slice(i, i + CONCURRENCY);
     const results = await Promise.all(
       chunk.map(async (abi): Promise<ABIFunction[]> => {
         const hash = extractIPFSHash(abi.file)!;
-        let abiText: string;
         try {
-          abiText = await fetchFromIPFS(hash);
+          return parseAbiJson(await fetchFromIPFS(hash));
         } catch {
           return [];
         }
-        return parseAbiJson(abiText);
       })
     );
-    // Merge results with signature deduplication
-    for (const funcs of results) {
-      for (const fn of funcs) {
-        const sig = `${fn.name}(${fn.inputs.map((i) => i.type).join(",")})`;
-        if (seenSignatures.has(sig)) continue;
-        seenSignatures.add(sig);
-        allFunctions.push(fn);
-      }
+    perFile.push(...results);
+  }
+
+  // Count how many distinct ABI files contain each function signature
+  const sigToFunction = new Map<string, ABIFunction>();
+  const sigToFileCount = new Map<string, Set<number>>();
+  for (let fileIdx = 0; fileIdx < perFile.length; fileIdx++) {
+    const seenInFile = new Set<string>();
+    for (const fn of perFile[fileIdx]) {
+      const sig = `${fn.name}(${fn.inputs.map((i) => i.type).join(",")})`;
+      if (seenInFile.has(sig)) continue;
+      seenInFile.add(sig);
+      if (!sigToFunction.has(sig)) sigToFunction.set(sig, fn);
+      const files = sigToFileCount.get(sig) || new Set<number>();
+      files.add(fileIdx);
+      sigToFileCount.set(sig, files);
     }
   }
 
-  return allFunctions;
+  // Consensus: only one ABI file overall -> keep everything, otherwise keep
+  // functions present in >=2 distinct ABI files.
+  const singleFile = perFile.length <= 1;
+  const minFileCount = singleFile ? 1 : 2;
+
+  const result: ABIFunction[] = [];
+  for (const [sig, fn] of sigToFunction) {
+    if ((sigToFileCount.get(sig)?.size ?? 0) >= minFileCount) {
+      result.push(fn);
+    }
+  }
+  return result;
 }
 
 /** Parse ABI JSON text into ABIFunction objects (without deduplication). */

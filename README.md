@@ -16,6 +16,14 @@ This project is built for [ETHOnline 2026](https://ethglobal.com/events/ethonlin
 - Fetches **subgraph manifests** from IPFS (inline or by ipfsHash)
 - Parses **GraphQL schemas** from IPFS to extract entities and fields
 
+> **ℹ️ All data comes exclusively from The Graph** — the Graph Network Subgraph API and
+> the IPFS gateway (`ipfs.thegraph.com`). No third-party RPC, block explorer, or
+> metadata source is used. AI analysis is built **only** from the indexed subgraphs:
+> manifests, entities, data sources, event handlers, and their ABI files. For each
+> subgraph only the **primary ABI** of the queried contract is used (matched by
+> `source.abi`), so auxiliary token ABIs referenced by the subgraph handlers never
+> leak into the analysis.
+
 
 ## Quick Start
 
