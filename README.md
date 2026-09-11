@@ -23,6 +23,8 @@ npm run dev:api
 
 This starts the analyze endpoint at http://localhost:3001/api/analyze
 
+> **Ports:** Frontend runs on **5173** (Vite), API server on **3001**. Vite proxies `/api` requests to the API server automatically.
+
 ## How It Works
 
 1. Enter a smart contract address
