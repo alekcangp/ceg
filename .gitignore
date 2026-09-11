@@ -1,5 +1,11 @@
 node_modules/
 .env
 dist/
+
+# IDE / agent tooling
 .kilo/
 .kilocode/
+.idea/
+.vscode/
+*.swp
+.DS_Store
