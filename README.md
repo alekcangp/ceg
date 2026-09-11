@@ -44,32 +44,6 @@ This project is configured for one-click deployment to Vercel:
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/alekcangp/ceg)
 
-### Manual deployment:
-
-1. **Import your repository** on [Vercel](https://vercel.com/new)
-2. **Framework Preset**: Vite (auto-detected)
-3. **Root Directory**: `./`
-4. **Build Settings**:
-   - Build Command: `npm run build`
-   - Output Directory: `dist`
-5. **Environment Variables** — add these in Vercel dashboard:
-
-| Variable | Required | Description |
-|---|---|---|
-| `THEGRAPH_API_KEY` | Yes | [Get API key](https://thegraph.com/en/) |
-| `GRAPH_NETWORK_SUBGRAPH_ID` | No | Default: `QmdKXcBUHR3UyURqVRQHu1oV6VUkBrhi2vNvMx3bNDnUCc` |
-| `CLOUDFLARE_ACCOUNT_ID` | No | [Cloudflare account ID](https://developers.cloudflare.com/workers-ai/) |
-| `CLOUDFLARE_API_TOKEN` | No | Cloudflare Workers AI token |
-| `CF_AI_MODEL` | No | Default: `@cf/meta/llama-3.3-70b-instruct-fp8-fast` |
-
-6. **Deploy** — Vercel automatically builds and deploys both frontend and serverless API.
-
-### Notes:
-
-- AI analysis is optional — the app works without Cloudflare credentials
-- The API has a 60-second timeout (configured in `api/analyze.ts`)
-- No database required — all data is fetched live from The Graph and IPFS
-
 ## How It Works
 
 1. Enter a smart contract address
@@ -101,11 +75,11 @@ This project is configured for one-click deployment to Vercel:
 
 | Variable | Required | Description |
 |---|---|---|
-| `CLOUDFLARE_ACCOUNT_ID` | No | Cloudflare account ID |
-| `CLOUDFLARE_API_TOKEN` | No | Cloudflare Workers AI API token |
-| `CF_AI_MODEL` | No | Cloudflare AI model (default: `@cf/meta/llama-3.3-70b-instruct-fp8-fast`) |
-| `THEGRAPH_API_KEY` | Yes | The Graph API key |
-| `GRAPH_NETWORK_SUBGRAPH_ID` | Yes | Graph Network subgraph deployment ID |
+| `THEGRAPH_API_KEY` | Yes | [Get API key](https://thegraph.com/en/) |
+| `GRAPH_NETWORK_SUBGRAPH_ID` | No | Default: `QmdKXcBUHR3UyURqVRQHu1oV6VUkBrhi2vNvMx3bNDnUCc` |
+| `CLOUDFLARE_ACCOUNT_ID` | No | [Cloudflare account ID](https://developers.cloudflare.com/workers-ai/) |
+| `CLOUDFLARE_API_TOKEN` | No | Cloudflare Workers AI token |
+| `CF_AI_MODEL` | No | Default: `@cf/meta/llama-3.3-70b-instruct-fp8-fast` |
 | `IPFS_GATEWAY_URL` | No | IPFS gateway URL (default: `https://ipfs.thegraph.com/ipfs`) |
 | `TOP_SUBGRAPHS` | No | Top N subgraphs by signal + top N by query fees (default: `5`) |
 
