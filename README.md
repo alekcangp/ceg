@@ -62,7 +62,6 @@ This starts the analyze endpoint at http://localhost:3001/api/analyze
 | `THEGRAPH_GATEWAY_URL` | Yes | The Graph gateway URL |
 | `GRAPH_NETWORK_SUBGRAPH_ID` | Yes | Graph Network subgraph deployment ID |
 | `IPFS_GATEWAY_URL` | No | IPFS gateway URL (default: `https://ipfs.thegraph.com/ipfs`) |
-| `SUBGRAPH_MANIFEST_CACHE_TTL` | No | In-memory IPFS cache TTL in seconds (0 = disabled, default 3600) |
 | `TOP_SUBGRAPHS` | No | Top N subgraphs by signal + top N by query fees (default: `5`) |
 
 > **Note**: AI analysis is optional. If Cloudflare credentials are not provided, the app still performs full subgraph discovery, manifest/schema parsing, and graph visualization — just without AI interpretation.
