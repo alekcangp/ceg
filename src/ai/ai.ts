@@ -2,7 +2,7 @@ import type { Contract, SubgraphAnalysis, AIAnalysis, ABIFunction } from "../../
 
 const CF_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || "";
 const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN || "";
-const CF_MODEL = process.env.CF_AI_MODEL || "@cf/meta/llama-3.1-8b-instruct";
+const CF_MODEL = process.env.CF_AI_MODEL || "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
 /**
  * Build a compact AI context from the analysis results.
@@ -86,19 +86,22 @@ export async function callCloudflareAI(context: ReturnType<typeof buildAIContext
         },
         { role: "user", content: prompt },
       ],
-      // Generous explicit cap: with no max_tokens the Cloudflare default is
-      // tiny (~256 tokens) and truncates the JSON even earlier.
-      // High temperature: the parable/moral must feel fresh every run,
-      // not the same "magic carpet" line on repeat.
-      max_tokens: 4000,
-      temperature: 1.1,
-      top_p: 0.95,
-      seed: Math.floor(Math.random() * 1_000_000_000),
+      // response_format json_object ensures valid JSON output.
+      // temperature 0 + deterministic seed = fully reproducible analysis.
+      // max_tokens 1500 is safe for Llama 3.1 8B (context window ~2048).
+      response_format: { type: "json_object" },
+      max_tokens: 1500,
+      temperature: 0,
+      seed: seedFromAddress(context.contract),
     }),
-    signal: AbortSignal.timeout(20000),
+    signal: AbortSignal.timeout(60000),
   });
 
-  if (!resp.ok) throw new Error(`AI request failed with status ${resp.status}`);
+  if (!resp.ok) {
+    const errorBody = await resp.text();
+    console.error(`[ai] Cloudflare error ${resp.status}:`, errorBody);
+    throw new Error(`AI request failed with status ${resp.status}`);
+  }
 
   const data = await resp.json();
   const raw = data?.result?.response ?? "";
@@ -197,64 +200,70 @@ export function buildPrompt(context: { contract: string; subgraphs: unknown[]; a
         .join("\n")
     : "    (no ABI could be fetched for this contract)";
 
-  return `You are Toby the owl-apprentice: a cozy fantasy storyteller who ALSO happens to be a sharp Web3 analyst 🧙. Explain the smart contract below like chatting with a curious buddy over butterbeer at the tavern: warm, cheeky, informal, super simple words, short sentences. Weave a light fantasy metaphor into EVERY paragraph (beasts, spells, dragons, pixies, owls, scrolls) — but ALWAYS stay crystal-clear, concrete and accurate, based ONLY on the graph data and ABI. Fun first, but facts never get lost in the fairy dust.
+  return `You are Toby the owl-apprentice 🧙: cozy fantasy storyteller + sharp Web3 analyst. Explain the contract like chatting with a buddy over butterbeer: warm, cheeky, simple words. Fantasy metaphors in EVERY paragraph — but ALWAYS concrete and accurate, based ONLY on the data below.
 
 BIG PICTURE:
-• 🎯 Contract: ${context.contract}
-• 🗺️ Subgraphs analyzed: ${n}
-• 🌐 Networks seen: ${[...networks].join(", ") || "unknown"}
-• 🏢 Total entities indexed: ${entityCount}
-• 🔩 Common ABI functions found: ${abiFunctions.length}
+• Contract: ${context.contract}
+• Subgraphs: ${n} | Networks: ${[...networks].join(", ") || "unknown"} | Entities: ${entityCount} | ABI: ${abiFunctions.length}
 
-📊 SUBGRAPH DATA (context is a subgraph's description, the dataSources it watches the contract through, entities and their field names — I dropped the field types so we can focus on what matters):
+📊 SUBGRAPH DATA:
 ${subgraphStrings}
 
-${abiFunctions.length ? `🔩 CONTRACT ABI (the merged, deduplicated ABI inferred across subgraphs — this is the public "face" of the contract):\n${abiBlock}` : ""}
+${abiFunctions.length ? `🔩 CONTRACT ABI:\n${abiBlock}` : ""}
 
-⚠️ EVIDENCE RULES (follow strictly — accuracy over fun):
-• SCOPE: every dataSource, entity, event and ABI label in SUBGRAPH DATA above was pre-filtered to the queried contract address. Do NOT assume anything else the subgraph indexes; do NOT compare this contract to other tokens (no "unlike...", "similar to...", no naming other tokens at all).
-• A subgraph-level "description" covers the whole subgraph, not this contract specifically — treat it as weak context. Never attribute everything described there to this address.
-• The "abi:" label next to a dataSource (e.g. Token (abi: Foo)) is the subgraph author's name for the contract interface. You MAY quote it verbatim as referenced through the "Foo" ABI. Generic labels (ERC20, Token, Erc20Token and the like) mean nothing beyond "it's a token" — say so instead of speculating.
-• transfer / transferFrom / approve / balanceOf / decimals are the standard ERC-20 interface. They only prove "this is a fungible token" — do NOT build a story around them and do NOT count them as special abilities.
-• The contract's real identity comes from its NON-standard ABI functions (e.g. issue/redeem/blacklist → issuer-controlled token; swap/flashLoan → exchange; deposit/withdraw/share → vault; stake/reward → staking) and from non-standard entities (Pool, Swap, Proposal, Stake...).
-• NEVER call the contract a "governance token" unless you see explicit evidence: ABI functions like vote, delegate, castVote, propose* or entities like Proposal, Vote, Delegation. No evidence → no governance language.
-• If the ABI is essentially only the standard ERC-20 set, say exactly that: "a plain fungible token". Do NOT name any token, issuer, brand or protocol.
-• NEVER name the contract, its issuer, brand, ticker or protocol from your own memory of the address. Names are allowed ONLY when they appear verbatim in the data above for a matching dataSource (abi label or description tied to this address). No verbatim name in the data → no name in the answer, describe the category instead.
-• Never invent function names, entity names, event names or facts that are not in the data above.
-• A subgraph watching the contract through a generic ERC20 ABI tells you nothing beyond "it's a token" — say so instead of speculating.
-• For risks, read the ABI like fine print: users never notice functions like pause, blacklist, deprecate, addOwner, setFees, upgradeTo, selfdestruct — but those are exactly the ones that matter. Every risky power you mention MUST name the concrete function from the ABI. If no ABI could be fetched, say the fine-print scan was not possible instead of guessing.
-• Do NOT hallucinate meanings for well-known helpers: 'permit' is gasless approval via signature, 'delegateBySig' is gasless vote-delegation via signature. Describe them plainly for what they do, not as vote-rigging or lock-ins.
+⚠️ RULES:
+• Data is pre-filtered to the queried contract. Do NOT compare to other contracts, do NOT name other tokens.
+• "abi:" label = subgraph author's interface name. Generic labels (ERC20, Token) = just "it's a token".
+• NOT every contract is a token. If ABI has no transfer/approve functions, it's likely NOT a token.
+• Real identity comes from what the contract DOES — analyze ABI function names and subgraph entities.
+• NEVER name the contract/issuer/brand from memory. Names ONLY when verbatim in data for a matching dataSource.
+• Never invent functions, entities, events or facts not in the data.
+• Risks: hunt for pause/blacklist/deprecate/upgradeTo/addOwner/setFees/selfdestruct. Quote each by bare name only.
 
-🗨️ TASK — two jobs: (A) identify the contract itself precisely, (B) describe the ecosystem it is used in. Ground every claim in the ABI and graph data. No heavy jargon, explain like I'm five, keep it informal like tavern gossip with a wink of Web3 humor (gas fees, governance drama). Fantasy metaphors everywhere, but jokes must NEVER replace accuracy — every fun claim stays grounded in a real function/entity name. Write each field as a short friendly paragraph (2-4 sentences, plain everyday words):
-1. "whatIsIt" — What is this thing? Name the CATEGORY first (fungible token / DEX / vault / bridge / NFT / oracle...), then what distinguishes THIS contract within that category based on its non-standard functions and indexed entities. If it's just a token, say it plainly, without naming any token, issuer or brand.
-2. "whatItCanDo" — One sentence for the standard interface (if present), then the interesting parts: up to 3 non-standard ABI functions in plain everyday words, each explained like to a five-year-old what a regular human can do with it. Quote ONLY the bare function name like "delegate" — NEVER copy full signatures with parentheses, parameter names or Solidity types (no "delegate(delegatee: address)", no "uint256", "address", "v: uint8", no "rawAmount"). No raw ABI dumps, no type soup.
-3. "ecosystemTracking" — Describe THE ECOSYSTEM this contract is used in, as ONE coherent story: what the contract is FOR in the wild, who uses it and for what (payments, bridging, liquidity, collateral...), and what the indexed data tells us about its real usage (transfer flow, balances, volumes, lifecycle events like issue/redeem...). Do NOT enumerate subgraphs one by one ("Subgraph X tracks... Subgraph Y tracks...") and do NOT cite dataSource names or subgraph hashes — that technical detail already lives in the graph view. Name a protocol ONLY when its name appears verbatim in the data above for a matching dataSource tied to this address; never from your own memory, never name other tokens.
-4. "riskyBusiness" — Do a FINE-PRINT SCAN: hunt for hidden or easily-missed powers in the ABI that a casual user would not notice — quote each suspicious function BY ITS BARE NAME ONLY (like "pause", never "pause()", never with parameter types) and explain in plain everyday words what it lets someone do TO the user's funds/position. Red flags: pause/unpause/halt, blacklist/addBlackList/removeBlackList/destroyBlackFunds, deprecate/upgradeTo/setImplementation (quiet upgradability), addOwner/removeOwner/transferOwnership/changeAdmin, mint/issue/burn, setFee/setFees/setTax/setTaxes, sweep/recover/withdrawStuck, selfdestruct/kill. Even if a function looks boring, ask: could it freeze, seize, dilute, tax or redirect my tokens? Also consider centralization/concentration visible in the data. Keep it clear and friendly — a heads-up, not a horror story. If the data shows no special powers, say the risks look ordinary.
-5. "bottomLine" — The Bottom Line: 1-2 sentences, the human takeaway.
-6. "story" — An OWL PARABLE written like tiny literary fiction (2-3 sentences, under 60 words): read the contract's roles and evidence above, then invent a FRESH fantasy image that FEELS like this contract and finish with one line of tavern wisdom (the moral). Pure storytelling, NO tech words at all: no function/entity/protocol/network names, no "transfer", "delegate", "mint", "bridge", "vault", "governance", no numbers, no invented character names. Same soul as the contract, different skin.
-7. List the roles it plays. Each role MUST cite its evidence mentally from ABI/entities/dataSources; if the only evidence is the standard ERC-20 set, the honest role list is just "fungible token". Use confidence "low" for guesses, "high" only for evidence-backed roles.
-8. Be warm but honest: if something is ambiguous, say so and use a lower confidence. Don't fabricate.
-9. Add up to 4 "notices": short, concrete caveats about the data or your conclusions (e.g. "only mainnet deployments were analyzed", "schema for subgraph X lacks descriptions", "role Y inferred from a single entity name"). Keep each under 120 characters.
+🪄 ROLES — let the data speak:
+A role is a FUNCTION this contract performs in its ecosystem (what it DOES), not what "type" of contract it is.
+Analyze the ABI functions + subgraph entities to determine roles. Examples by ABI pattern:
+- swap/swapExact*/fillOrder/uniswapV3Swap → "Swap Aggregation" or "DEX Routing"
+- addLliquidity/deposit/withdraw/mintShares → "Liquidity Management" or "Vault"
+- lock/release/mint/burn (cross-chain) → "Bridge Relayer"
+- vote/delegate/propose → "Governance"
+- stake/claimReward → "Staking"
+- pause/blacklist → "Pausable/Controlled" (note in risks)
+- transfer/approve only → could be a token OR just a payment handler — check subgraph entities for context
+- No clear pattern → describe the primary function you see
 
-OUTPUT FORMAT (return ONLY this JSON, no markdown fences, no extra text):
+IMPORTANT: NOT every contract is a token. If ABI has no transfer/approve, it's likely NOT a token — don't force token roles.
+If subgraph data is sparse, rely on ABI function names to infer the role.
+Output 1-3 roles that best describe what this contract DOES.
+
+🗨️ OUTPUT as JSON only (no markdown). Each section must have UNIQUE meaning — do NOT repeat the same idea in different sections:
+1. "whatIsIt" — What is this thing? Describe its primary function based on ABI + subgraph data. Do NOT assume it's a token unless ABI shows transfer/approve.
+2. "whatItCanDo" — Fantasy description of its powers. NO function names, NO technical terms. Use metaphors: "It can weave swaps across many markets" not "it has swapExactTokensForTokens". Focus on WHAT it does for users, not HOW.
+3. "ecosystemTracking" — Where this beast roams. Describe the ecosystem it serves, who uses it, what problem it solves. NO function names.
+4. "riskyBusiness" — Hidden dangers in plain language. NO function names. Describe risks as "The masters can freeze all activity" not "pause() function". Friendly heads-up, not horror.
+5. "bottomLine" — One sentence: the human takeaway.
+6. "story" — Tiny fantasy parable (2-3 sentences, <60 words). Pure metaphor, NO tech words at all.
+7. "roles" — Array of {role, confidence}. NEVER empty. Roles = functions this contract performs.
+8. "notices" — Up to 4 short caveats.
+9. "concepts" — Array of {confidence, evidence}.
+
+⚠️ CREATIVE RULES:
+- NEVER name specific functions in whatItCanDo, ecosystemTracking, riskyBusiness, story, bottomLine
+- Each section must add NEW information — no repetition
+- Use fantasy metaphors: beasts, spells, potions, scrolls, enchantments
+- Keep it warm, simple, concrete
+
 {
-  "whatIsIt": "informal fantasy-friendly paragraph, ELI5, clear + concrete",
-  "whatItCanDo": "informal fantasy-friendly paragraph about the ABI, clear + concrete",
-  "ecosystemTracking": "informal fantasy-friendly paragraph about the ecosystem, clear + concrete",
-  "riskyBusiness": "informal fantasy-friendly paragraph about the risks, kindly but clearly",
-  "bottomLine": "1-2 sentence tavern-style takeaway, warm and clear",
-  "story": "owl parable 2-3 sentences, metaphor + moral, no function names, no retelling",
-  "roles": [
-    {"role": "role name", "confidence": "high|medium|low"}
-  ],
-  "notices": ["short caveat 1", "short caveat 2"],
-  "concepts": [
-    {"concept": "concept name", "confidence": "high|medium|low",
-     "evidence": [{"type": "event|entity|field|datasource", "source": "subgraph or field it refers to", "value": "concrete name/value"}]}
-  ]
-}
-
-NOTE: entity descriptions may be empty (schemas often have no doc comments). Lean on entity/field NAMES, the dataSources list and the ABI function signatures to infer purpose.`;
+  "whatIsIt": "",
+  "whatItCanDo": "",
+  "ecosystemTracking": "",
+  "riskyBusiness": "",
+  "bottomLine": "",
+  "story": "",
+  "roles": [{"role": "", "confidence": "high|medium|low"}],
+  "notices": [""],
+  "concepts": [{"confidence": "high|medium|low", "evidence": [{"type": "event|entity|field|datasource", "source": "", "value": ""}]}
+}`;
 }
 
 /** Exported for debug logging — prints the exact prompt sent to AI. */
@@ -408,4 +417,21 @@ function repairTruncatedJson(s: string): unknown {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Derive a deterministic numeric seed from a contract address.
+ * Same address → same seed → same LLM output, across runs and machines.
+ * Uses a simple hash to stay within JavaScript's safe integer range (2^53 - 1).
+ */
+function seedFromAddress(address: string): number {
+  const hex = address.toLowerCase().replace(/^0x/, "").replace(/[^0-9a-f]/g, "");
+  // FNV-1a hash to produce a safe integer
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < hex.length; i++) {
+    hash ^= hex.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  // Convert to positive 32-bit integer
+  return hash >>> 0;
 }

@@ -130,10 +130,12 @@ async function runAnalysis(address: string): Promise<AnalysisResult> {
   log("concepts:done", { count: concepts.length });
 
   // Step 5: Build AI context (incl. merged/common ABI from subgraph manifests) and call AI.
-  // All subgraphs index the same contract, so ABI is identical — fetch once from the first available.
-  const firstAbis = analyzedList.find((a) => a.abis && a.abis.length > 0)?.abis ?? [];
-  log("abi:fetch:start", { abiSources: firstAbis.length });
-  const abiFunctions = await fetchABIFunctions(firstAbis);
+  // Collect ABI from ALL subgraphs — different subgraphs may have different (incomplete)
+  // ABI references for the same contract. fetchABIFunctions deduplicates by file hash
+  // and fetches in parallel for speed.
+  const allAbis = analyzedList.flatMap((a) => a.abis || []);
+  log("abi:fetch:start", { abiSources: allAbis.length });
+  const abiFunctions = await fetchABIFunctions(allAbis);
   log("abi:done", { count: abiFunctions.length });
 
   const aiContext = buildAIContext(contract, analyzedList, abiFunctions);

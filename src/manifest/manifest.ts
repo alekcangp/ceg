@@ -314,55 +314,79 @@ function parseFields(body: string): Field[] {
   return fields;
 }
 
-/** Fetch ABI JSON from IPFS and extract only function signatures (deduplicated). */
+/** Fetch ABI JSON from IPFS and extract only function signatures (deduplicated).
+ * Fetches in parallel with a concurrency limit to avoid throttling the IPFS gateway. */
 export async function fetchABIFunctions(
   abis: { name: string; file: string }[]
 ): Promise<ABIFunction[]> {
   const allFunctions: ABIFunction[] = [];
-  const seen = new Set<string>();
+  const seenSignatures = new Set<string>();
+  const seenFiles = new Set<string>();
 
-  for (const abi of abis) {
+  // Deduplicate files to avoid fetching the same IPFS hash multiple times
+  const uniqueAbis = abis.filter((abi) => {
     const hash = extractIPFSHash(abi.file);
-    if (!hash) continue;
+    if (!hash || seenFiles.has(hash)) return false;
+    seenFiles.add(hash);
+    return true;
+  });
 
-    let abiText: string | undefined;
-    try {
-      abiText = await fetchFromIPFS(hash);
-      if (!abiText) continue;
-    } catch {
-      continue;
-    }
-
-    try {
-      const abiJson = JSON.parse(abiText);
-      if (!Array.isArray(abiJson)) continue;
-
-      for (const item of abiJson) {
-        if (item?.type !== "function") continue;
-        const func = item as Record<string, unknown>;
-        const name = String(func.name || "");
-        if (!name || name.startsWith("_")) continue;
-
-        const inputs = (func.inputs as Array<{ name: string; type: string }> | undefined) || [];
-        const outputs = (func.outputs as Array<{ name: string; type: string }> | undefined) || [];
-
-        // Deduplicate by ABI signature so identical functions appear once.
-        const signature = `${name}(${inputs.map((i) => i.type).join(",")})`;
-        if (seen.has(signature)) continue;
-        seen.add(signature);
-
-        allFunctions.push({
-          name,
-          inputs: inputs.slice(0, 5).map((inp) => ({ name: inp.name || "", type: inp.type })),
-          outputs: outputs.slice(0, 3).map((out) => ({ name: out.name || "", type: out.type })),
-          stateMutability: func.stateMutability ? String(func.stateMutability) : undefined,
-        });
+  // Process in chunks of 3 for controlled parallelism
+  const CONCURRENCY = 3;
+  for (let i = 0; i < uniqueAbis.length; i += CONCURRENCY) {
+    const chunk = uniqueAbis.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(
+      chunk.map(async (abi): Promise<ABIFunction[]> => {
+        const hash = extractIPFSHash(abi.file)!;
+        let abiText: string;
+        try {
+          abiText = await fetchFromIPFS(hash);
+        } catch {
+          return [];
+        }
+        return parseAbiJson(abiText);
+      })
+    );
+    // Merge results with signature deduplication
+    for (const funcs of results) {
+      for (const fn of funcs) {
+        const sig = `${fn.name}(${fn.inputs.map((i) => i.type).join(",")})`;
+        if (seenSignatures.has(sig)) continue;
+        seenSignatures.add(sig);
+        allFunctions.push(fn);
       }
-    } catch {
-      // ignore parse errors for this ABI
     }
   }
 
   return allFunctions;
+}
+
+/** Parse ABI JSON text into ABIFunction objects (without deduplication). */
+function parseAbiJson(abiText: string): ABIFunction[] {
+  const functions: ABIFunction[] = [];
+  try {
+    const abiJson = JSON.parse(abiText);
+    if (!Array.isArray(abiJson)) return [];
+
+    for (const item of abiJson) {
+      if (item?.type !== "function") continue;
+      const func = item as Record<string, unknown>;
+      const name = String(func.name || "");
+      if (!name || name.startsWith("_")) continue;
+
+      const inputs = (func.inputs as Array<{ name: string; type: string }> | undefined) || [];
+      const outputs = (func.outputs as Array<{ name: string; type: string }> | undefined) || [];
+
+      functions.push({
+        name,
+        inputs: inputs.slice(0, 5).map((inp) => ({ name: inp.name || "", type: inp.type })),
+        outputs: outputs.slice(0, 3).map((out) => ({ name: out.name || "", type: out.type })),
+        stateMutability: func.stateMutability ? String(func.stateMutability) : undefined,
+      });
+    }
+  } catch {
+    // ignore parse errors for this ABI
+  }
+  return functions;
 }
 
