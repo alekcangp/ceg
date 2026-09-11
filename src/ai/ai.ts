@@ -233,22 +233,28 @@ If ABI is sparse (only events/no functions), rely on ENTITY NAMES + DATA SOURCES
 Output 1-3 roles. Use confidence: HIGH (clear evidence), MEDIUM (some evidence), LOW (uncertain).
 If ABI is very sparse, add a notice about limited data.
 
-🗨️ OUTPUT as JSON only (no markdown). Each section must have UNIQUE meaning — do NOT repeat the same idea in different sections:
-1. "whatIsIt" — What is this thing? Describe its primary function based on ABI + subgraph data. Do NOT assume a specific type — let the data tell you what it is.
-2. "whatItCanDo" — Fantasy description of its powers. NO function names, NO technical terms. Use metaphors: "It can weave swaps across many markets" not "it has swapExactTokensForTokens". Focus on WHAT it does for users, not HOW.
-3. "ecosystemTracking" — Where this beast roams. Describe the ecosystem it serves, who uses it, what problem it solves. NO function names.
-4. "riskyBusiness" — Hidden dangers in plain language. NO function names. Describe risks as "The masters can freeze all activity" not "pause() function". Friendly heads-up, not horror.
-5. "bottomLine" — One sentence: the human takeaway.
-6. "story" — Tiny fantasy parable (2-3 sentences, <60 words). Pure metaphor, NO tech words at all.
-7. "roles" — Array of {role, confidence}. NEVER empty. Roles = functions this contract performs.
-8. "notices" — Up to 4 short caveats.
-9. "concepts" — Array of {confidence, evidence}.
+🗨️ OUTPUT as JSON only (no markdown). Each section must have UNIQUE meaning — do NOT repeat the same idea.
 
-⚠️ CREATIVE RULES:
-- NEVER name specific functions in whatItCanDo, ecosystemTracking, riskyBusiness, story, bottomLine
-- Each section must add NEW information — no repetition
-- Use fantasy metaphors: beasts, spells, potions, scrolls, enchantments
-- Keep it warm, simple, concrete
+⚠️ CRITICAL: Separate FACTS from FANTASY:
+- whatIsIt, roles, concepts, notices = FACTUAL (based on ABI + subgraph data)
+- whatItCanDo, ecosystemTracking, riskyBusiness, story, bottomLine = FANTASY METAPHORS only
+
+⚠️ FANTASY RULES:
+- NO technical claims about what the contract CAN or CANNOT do
+- NO mentions of ownership, control, freezing, minting, pausing - unless explicitly in ABI
+- PURE METAPHOR: compare to magical creatures, spells, potions, scrolls
+- If ABI shows no special powers: describe as "a simple, honest creature with no hidden tricks"
+- NEVER invent risks or powers not supported by data
+
+1. "whatIsIt" (FACT) — What is this thing? Describe its primary function based on ABI + subgraph data. Do NOT assume a specific type.
+2. "whatItCanDo" (FANTASY) — Metaphor only. "It weaves swaps across many markets" not "it can swap tokens". NO function names.
+3. "ecosystemTracking" (FANTASY) — Metaphor only. Where this beast roams, what realm it serves.
+4. "riskyBusiness" (FANTASY) — Metaphor only. If ABI shows risks: "Dangerous claws (pause, blacklist)". If no risks: "A gentle beast with no hidden dangers". Quote function names ONLY if they exist in ABI.
+5. "bottomLine" (FANTASY) — One sentence metaphor.
+6. "story" (FANTASY) — Pure metaphor (2-3 sentences, <60 words). NO tech words.
+7. "roles" (FACT) — {role, confidence}. Based on ABI + entities. NEVER empty.
+8. "notices" (FACT) — Up to 4 caveats about data limitations.
+9. "concepts" (FACT) — {confidence, evidence}.
 
 {
   "whatIsIt": "",
