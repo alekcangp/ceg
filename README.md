@@ -12,8 +12,8 @@ This project is built for [ETHOnline 2026](https://ethglobal.com/events/ethonlin
 
 ### Key integrations with The Graph
 
-- Queries the **Graph Network Subgraph** to discover subgraph deployments indexing a contract
-- Fetches **subgraph manifests** from IPFS (inline or by ipfsHash)
+- Queries the **Graph Network Subgraph** to discover subgraph deployments indexing a contract — see [`src/discovery/discovery.ts`](src/discovery/discovery.ts)
+- Fetches **subgraph manifests** from IPFS (inline or by ipfsHash) — see [`src/manifest/manifest.ts`](src/manifest/manifest.ts)
 - Parses **GraphQL schemas** from IPFS to extract entities and fields
 
 > **ℹ️ All data comes exclusively from The Graph** 
