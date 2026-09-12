@@ -4,7 +4,8 @@
   "framework": "vite",
   "rewrites": [{ "source": "/api/(.*)", "destination": "/api/$1" }],
   "functions": {
-    "api/analyze.ts": { "maxDuration": 60 }
+    "api/analyze.ts": { "maxDuration": 60 },
+    "api/generate-image.ts": { "maxDuration": 30 }
   },
   "headers": [
     {

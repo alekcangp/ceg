@@ -52,14 +52,15 @@ This project is configured for one-click deployment to Vercel:
 3. It retrieves and parses the top subgraphs.
 4. It extracts data sources, event handlers, entities, and fields from sunbgraph`s manifest
 5. It retrieves and parses GraphQL schemas from IPFS
-6. It sends one compact dataset to Kilo Gateway (or Cloudflare Workers AI) for semantic interpretation
-8. It visualizes the ecosystem as an interactive graph
+6. It sends one compact dataset to Pollinations API (`POST /v1/chat/completions`) for semantic interpretation
+7. It generates a fantasy illustration via Pollinations API (`POST /v1/images/generations`)
 
 ## Architecture
 
 - **Frontend**: Vanilla TypeScript + SVG graph (no framework)
 - **Backend**: Vercel serverless functions (`api/analyze.ts`)
-- **AI**: Kilo Gateway or Cloudflare Workers AI — optional, app works without it
+- **AI (text)**: Pollinations `POST /v1/chat/completions` (OpenAI-compatible)
+- **AI (image)**: Pollinations `POST /v1/images/generations` (OpenAI-compatible)
 - **Data sources**: The Graph decentralized network, IPFS
 
 ## Environment Variables
@@ -68,15 +69,12 @@ This project is configured for one-click deployment to Vercel:
 |---|---|---|
 | `THEGRAPH_API_KEY` | Yes | [Get API key](https://thegraph.com/en/) |
 | `GRAPH_NETWORK_SUBGRAPH_ID` | No | Default: `QmdKXcBUHR3UyURqVRQHu1oV6VUkBrhi2vNvMx3bNDnUCc` |
-| `KILO_MODEL` | No | Kilo Gateway model for primary AI backend |
-| `KILO_API_KEY` | No | Kilo Gateway API key (optional for free models) |
-| `KILO_MAX_TOKENS` | No | Default: `8000` |
-| `CLOUDFLARE_ACCOUNT_ID` | No | [Cloudflare account ID](https://developers.cloudflare.com/workers-ai/) |
-| `CLOUDFLARE_API_TOKEN` | No | Cloudflare Workers AI token |
-| `CF_AI_MODEL` | No | Default: `@cf/meta/llama-3.1-8b-instruct-fast` |
+| `POLLINATIONS_API_KEY` | No | [Get API key](https://enter.pollinations.ai/keys) — enables AI analysis & image generation |
+| `POLLINATIONS_MODEL` | No | **Text** model — required for AI analysis (e.g. `openai/gpt-5.4-nano`). [Full list](https://gen.pollinations.ai/v1/models) |
+| `POLLINATIONS_MODEL_IMAGE` | No | **Image** model — required for illustrations (e.g. `black-forest-labs/flux.1-schnell`). [Full list](https://gen.pollinations.ai/image/models) |
 | `IPFS_GATEWAY_URL` | No | IPFS gateway URL (default: `https://ipfs.thegraph.com/ipfs`) |
 | `TOP_SUBGRAPHS` | No | Top N subgraphs by signal + top N by query fees (default: `5`) |
 
-> **Note**: AI analysis is optional. If no AI backend is configured, the app still performs full subgraph discovery, manifest/schema parsing, and graph visualization — just without AI interpretation.
+> **Note**: AI analysis is optional. If Pollinations API key or model is not configured, the app still performs full subgraph discovery, manifest/schema parsing, and graph visualization — just without AI interpretation.
 
 

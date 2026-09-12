@@ -1,14 +1,8 @@
 import type { Contract, SubgraphAnalysis, AIAnalysis, ABIFunction } from "../../shared/types.js";
 
-const CF_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || "";
-const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN || "";
-const CF_MODEL = process.env.CF_AI_MODEL || "@cf/meta/llama-3.1-8b-instruct-fast";
-
-// Kilo Gateway (free ":free" models, OpenAI-compatible). Primary provider when
-// KILO_MODEL is set; Cloudflare stays as fallback. 200 free requests/hour per IP.
-const KILO_BASE_URL = process.env.KILO_BASE_URL || "https://api.kilo.ai/api/gateway";
-const KILO_API_KEY = process.env.KILO_API_KEY || "";
-const KILO_MODEL = process.env.KILO_MODEL || "";
+const POLLINATIONS_API_KEY = process.env.POLLINATIONS_API_KEY ?? "";
+const POLLINATIONS_BASE_URL = (process.env.POLLINATIONS_BASE_URL ?? "https://gen.pollinations.ai").replace(/\/$/, "");
+const POLLINATIONS_MODEL = process.env.POLLINATIONS_MODEL ?? "";
 
 const SYSTEM_PROMPT =
   "You are Toby the owl-apprentice: a cozy fantasy storyteller and a sharp Web3 analyst. " +
@@ -20,15 +14,75 @@ const SYSTEM_PROMPT =
   "Think briefly, then output ONLY valid JSON matching the requested schema. No markdown.";
 
 /**
- * Build a compact AI context from the analysis results.
- * Per subgraph: name, description, network, ipfsHash, signal amounts,
- * queries, event handlers, and all entities (names + field names +
- * descriptions). Field types are intentionally NOT included — the ABI
- * section already carries the function signatures, so repeating
- * scalar/object types for every field just adds noise to the model.
- * Also includes summary figures (totals across relevant subgraphs) so the
- * model can describe fame/usage in words.
+ * Call Pollinations AI for text generation.
+ * Endpoint: POST /v1/chat/completions (OpenAI-compatible)
  */
+export async function callAI(context: ReturnType<typeof buildAIContext>): Promise<AIAnalysis | undefined> {
+  if (!POLLINATIONS_MODEL) {
+    console.warn("[ai] POLLINATIONS_MODEL not configured — skipping AI analysis");
+    return undefined;
+  }
+
+  const prompt = buildPrompt(context);
+  console.log("[ai] (pollinations/text) model:", POLLINATIONS_MODEL, "| prompt chars:", prompt.length);
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (POLLINATIONS_API_KEY) headers.Authorization = `Bearer ${POLLINATIONS_API_KEY}`;
+
+  const resp = await fetch(`${POLLINATIONS_BASE_URL}/v1/chat/completions`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model: POLLINATIONS_MODEL,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: prompt },
+      ],
+      max_tokens: 1500,
+      temperature: 0.4,
+    }),
+    signal: AbortSignal.timeout(60000),
+  });
+
+  if (!resp.ok) {
+    const errorBody = await resp.text();
+    console.error(`[ai] Pollinations text error ${resp.status}:`, errorBody.slice(0, 300));
+    throw new Error(`Pollinations text generation failed with status ${resp.status}`);
+  }
+
+  const data = await resp.json();
+  const choice = data?.choices?.[0];
+  console.log("[ai] (pollinations/text) finish:", choice?.finish_reason, "| usage:", JSON.stringify(data?.usage ?? {}));
+  const msg = choice?.message ?? {};
+  const raw = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content ?? "");
+  console.log("[ai] (pollinations/text) raw response:", raw.slice(0, 500));
+
+  const parsed = parseAIResponse(raw);
+  if (parsed && (parsed.whatIsIt || parsed.story)) return parsed;
+
+  // One retry on empty/truncated response
+  console.warn("[ai] (pollinations/text) empty/truncated analysis — retrying once");
+  const retry = await fetch(`${POLLINATIONS_BASE_URL}/v1/chat/completions`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model: POLLINATIONS_MODEL,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: prompt },
+      ],
+      max_tokens: 2000,
+      temperature: 0.4,
+    }),
+    signal: AbortSignal.timeout(60000),
+  });
+  if (!retry.ok) throw new Error(`Pollinations text retry failed with status ${retry.status}`);
+  const retryData = await retry.json();
+  const retryRaw = typeof retryData?.choices?.[0]?.message?.content === "string" ? retryData.choices[0].message.content : "";
+  console.log("[ai] (pollinations/text) retry finish:", retryData?.choices?.[0]?.finish_reason, "| raw:", retryRaw.slice(0, 300));
+  return parseAIResponse(retryRaw);
+}
+
 export function buildAIContext(contract: Contract, subgraphs: SubgraphAnalysis[], abiFunctions?: ABIFunction[]) {
   const figures = {
     relevantSubgraphs: subgraphs.length,
@@ -48,10 +102,7 @@ export function buildAIContext(contract: Contract, subgraphs: SubgraphAnalysis[]
       queryFeesAmount: sg.discovery.queryFeesAmount,
       signalledTokens: sg.discovery.signalledTokens,
       queryCount: sg.discovery.queryCount,
-      // DataSource names/ABI aliases show HOW each subgraph watches the
-      // contract (e.g. via ERC20 vs a custom exchange ABI) — useful identity signal.
       dataSources: (sg.manifest?.dataSources ?? []).map((d) => ({ name: d.name, abi: d.abi })),
-      // Watched on-chain happenings: names only (no signatures/types).
       events: (sg.manifest?.eventHandlers ?? []).map((h) => h.event.split("(")[0]).filter(Boolean).slice(0, 12),
       entities: (() => {
         const schemaEntities = sg.schema?.entities?.filter((e) => e && e.name);
@@ -65,9 +116,6 @@ export function buildAIContext(contract: Contract, subgraphs: SubgraphAnalysis[]
             })),
           }));
         }
-        // Fall back to manifest-declared entity names when the GraphQL schema
-        // could not be fetched (e.g. IPFS gateway unreachable), so the prompt
-        // still carries concrete entities instead of an empty list.
         if (Array.isArray(sg.manifest?.entities)) {
           return sg.manifest.entities.map((name) => ({ name, description: "", fields: [] as { name: string; description?: string }[] }));
         }
@@ -78,182 +126,14 @@ export function buildAIContext(contract: Contract, subgraphs: SubgraphAnalysis[]
   };
 }
 
-/**
- * Call Cloudflare Workers AI with the compact context.
- * The AI performs semantic interpretation, role detection,
- * and cross-subgraph pattern recognition.
- */
-export async function callCloudflareAI(context: ReturnType<typeof buildAIContext>): Promise<AIAnalysis | undefined> {
-  if (!CF_ACCOUNT_ID || !CF_API_TOKEN) {
-    console.warn("Cloudflare AI credentials not configured");
-    return undefined;
-  }
-
-  const prompt = buildPrompt(context);
-  console.log("[ai] prompt chars:", prompt.length);
-
-  const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/${CF_MODEL}`;
-  const resp = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${CF_API_TOKEN}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: prompt },
-      ],
-      // response_format json_object ensures valid JSON output.
-      // temperature 0 + deterministic seed = fully reproducible analysis.
-      // max_tokens 1000: output tokens cost the most neurons; all required
-      // sections (story <160 words etc.) fit comfortably.
-      response_format: { type: "json_object" },
-      max_tokens: 1500,
-      temperature: 0.4,
-      seed: seedFromAddress(context.contract),
-    }),
-    signal: AbortSignal.timeout(60000),
-  });
-
-  if (!resp.ok) {
-    const errorBody = await resp.text();
-    console.error(`[ai] Cloudflare error ${resp.status}:`, errorBody);
-    // Distinguish the common daily-quota exhaustion (Free plan: 10,000
-    // neurons/day) from generic throttling — the user-facing message differs.
-    if (/daily free allocation|code["\s:]*4006/i.test(errorBody)) {
-      throw new Error("AI daily free quota exhausted (Cloudflare Workers Free: 10,000 neurons/day) — try a cheaper CF_AI_MODEL or a paid plan");
-    }
-    if (resp.status === 429) {
-      throw new Error("AI is rate-limited right now — please retry in a moment");
-    }
-    throw new Error(`AI request failed with status ${resp.status}`);
-  }
-
-  const data = await resp.json();
-  const raw = data?.result?.response ?? "";
-  console.log("[ai] raw response:", typeof raw === "string" ? raw.slice(0, 500) : JSON.stringify(raw).slice(0, 500));
-
-  return parseAIResponse(raw);
-}
-
-/**
- * Call Kilo Gateway (OpenAI-compatible) with a ":free" model — zero cost,
- * rate-limited to ~200 requests/hour per IP. Enabled when KILO_MODEL is set;
- * an API key is optional for free models.
- */
-export async function callKiloAI(context: ReturnType<typeof buildAIContext>): Promise<AIAnalysis | undefined> {
-  if (!KILO_MODEL) {
-    console.warn("[ai] KILO_MODEL not configured — skipping Kilo Gateway");
-    return undefined;
-  }
-
-  const prompt = buildPrompt(context);
-  console.log("[ai] (kilo) prompt chars:", prompt.length);
-
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (KILO_API_KEY) headers.Authorization = `Bearer ${KILO_API_KEY}`;
-
-  const resp = await fetch(`${KILO_BASE_URL}/chat/completions`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      model: KILO_MODEL,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: prompt },
-      ],
-      // NOTE: response_format json_object is intentionally NOT sent — Kilo's
-      // free reasoning models return empty content under json_mode. The system
-      // prompt already demands raw JSON, and parseAIResponse handles the rest.
-      max_tokens: Number(process.env.KILO_MAX_TOKENS) || 8000,
-      temperature: 0.4,
-      include_reasoning: false,
-      seed: seedFromAddress(context.contract),
-    }),
-    signal: AbortSignal.timeout(60000),
-  });
-
-  if (!resp.ok) {
-    const errorBody = await resp.text();
-    console.error(`[ai] Kilo error ${resp.status}:`, errorBody.slice(0, 300));
-    throw new Error(`Kilo Gateway request failed with status ${resp.status}`);
-  }
-
-  const data = await resp.json();
-  const choice = data?.choices?.[0];
-  console.log("[ai] (kilo) finish:", choice?.finish_reason, "| usage:", JSON.stringify(data?.usage ?? {}));
-  // Reasoning models may put the answer in `reasoning` while `content` is
-  // empty — accept either. include_reasoning:false is requested but not all
-  // providers honor it.
-  const msg = choice?.message ?? {};
-  const raw =
-    typeof msg.content === "string" && msg.content
-      ? msg.content
-      : typeof msg.reasoning === "string"
-        ? msg.reasoning
-        : JSON.stringify(msg.content ?? "");
-  console.log("[ai] (kilo) raw response:", typeof raw === "string" ? raw.slice(0, 500) : JSON.stringify(raw).slice(0, 500));
-
-  const parsed = parseAIResponse(raw);
-  if (parsed && (parsed.whatIsIt || parsed.story)) return parsed;
-
-  // Reasoning models can burn their whole token budget on thinking and return
-  // empty or truncated content (finish_reason "length"). One retry gives them
-  // a second chance — still deterministic (seed + 1) and still free.
-  console.warn("[ai] (kilo) empty/truncated analysis — retrying once");
-  const retry = await fetch(`${KILO_BASE_URL}/chat/completions`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      model: KILO_MODEL,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: prompt },
-      ],
-      max_tokens: Number(process.env.KILO_MAX_TOKENS) || 8000,
-      temperature: 0.4,
-      include_reasoning: false,
-      seed: seedFromAddress(context.contract) + 1,
-    }),
-    signal: AbortSignal.timeout(60000),
-  });
-  if (!retry.ok) throw new Error(`Kilo Gateway request failed with status ${retry.status}`);
-  const retryData = await retry.json();
-  const retryMsg = retryData?.choices?.[0]?.message ?? {};
-  const retryRaw =
-    typeof retryMsg.content === "string" && retryMsg.content
-      ? retryMsg.content
-      : typeof retryMsg.reasoning === "string"
-        ? retryMsg.reasoning
-        : "";
-  console.log("[ai] (kilo) retry finish:", retryData?.choices?.[0]?.finish_reason, "| raw:", retryRaw.slice(0, 300));
-  return parseAIResponse(retryRaw);
-}
-
-/**
- * Main AI entry point: try Kilo Gateway first (when configured), then fall back
- * to Cloudflare Workers AI on any failure (quota, 429, bad JSON…).
- */
-export async function callAI(context: ReturnType<typeof buildAIContext>): Promise<AIAnalysis | undefined> {
-  if (KILO_MODEL) {
-    try {
-      const kilo = await callKiloAI(context);
-      if (kilo && (kilo.whatIsIt || kilo.story)) return kilo;
-      console.warn("[ai] (kilo) empty/invalid analysis — falling back to Cloudflare");
-    } catch (e) {
-      console.warn("[ai] (kilo) failed — falling back to Cloudflare:", (e as Error).message);
-    }
-  }
-  return callCloudflareAI(context);
+export function debugPrompt(context: { contract: string; subgraphs: unknown[]; abiFunctions?: ABIFunction[] }): string {
+  return buildPrompt(context);
 }
 
 export function buildPrompt(context: { contract: string; subgraphs: unknown[]; abiFunctions?: ABIFunction[] }): string;
 export function buildPrompt(context: ReturnType<typeof buildAIContext>): string;
 export function buildPrompt(context: { contract: string; subgraphs: unknown[]; abiFunctions?: ABIFunction[] }): string {
-  const sgs = Array.isArray(context.subgraphs)
-    ? (context.subgraphs as Array<Record<string, any>>)
-    : [];
+  const sgs = Array.isArray(context.subgraphs) ? (context.subgraphs as Array<Record<string, any>>) : [];
   const abiFunctions = (Array.isArray(context.abiFunctions) ? context.abiFunctions : []) as ABIFunction[];
   const fmt = (v: unknown): string => String(v ?? "").trim();
   const n = sgs.length;
@@ -264,30 +144,11 @@ export function buildPrompt(context: { contract: string; subgraphs: unknown[]; a
     chainCount: new Set(sgs.map((sg) => sg.network).filter(Boolean)).size,
   };
 
-  // --- Aggregate a few graph-wide numbers for the model -------------------------
-  const entityCount = sgs.reduce(
-    (acc, sg) => acc + (Array.isArray(sg.entities) ? sg.entities.length : 0),
-    0
-  );
-  const networks = new Set(sgs.map((sg) => fmt(sg.network)).filter(Boolean));
-
-  // --- Aggregate popularity metrics (signal, queries, tolls) --------------------
-  const num = (v: unknown): number => {
-    if (v === undefined || v === null) return 0;
-    const x = typeof v === "number" ? v : parseFloat(String(v).replace(/[,\s]/g, ""));
-    return Number.isNaN(x) ? 0 : x;
-  };
-  const totalSignal = Math.round(sgs.reduce((acc, sg) => acc + num(sg.signalAmount), 0));
-  const totalQueries = Math.round(sgs.reduce((acc, sg) => acc + num(sg.queryCount), 0));
-  const totalFees = Math.round(sgs.reduce((acc, sg) => acc + num(sg.queryFeesAmount), 0));
-  const activeSubgraphs = sgs.filter((sg) => num(sg.queryCount) > 0 || num(sg.signalAmount) > 0).length;
-
-  // --- Per-subgraph block (descriptions kept, field TYPES dropped) --------------
   const subgraphStrings = sgs
     .map((sg, i) => {
       const lines: string[] = [];
       const desc = fmt(sg.description);
-      lines.push(`Subgraph ${i + 1}: ${fmt(sg.name) || "?"}${desc ? ` — ${desc}` : ""}`);
+      lines.push(`Subgraph ${i + 1}: ${fmt(sg.name) || "?"}${desc ? ` -- ${desc}` : ""}`);
       const meta: string[] = [];
       if (fmt(sg.network)) meta.push(`network: ${fmt(sg.network)}`);
       if (fmt(sg.ipfsHash)) meta.push(`ipfs: ${fmt(sg.ipfsHash)}`);
@@ -300,21 +161,20 @@ export function buildPrompt(context: { contract: string; subgraphs: unknown[]; a
         .filter(Boolean)
         .join(", ");
       if (dsLine) meta.push(`dataSources: ${dsLine}`);
-      if (meta.length) lines.push(`    └ ${meta.join(" · ")}`);
-
+      if (meta.length) lines.push(`    + ${meta.join(" . ")}`);
       const entities = Array.isArray(sg.entities) ? sg.entities : [];
       if (entities.length) {
         lines.push("    Indexed entities (GraphQL):");
         for (const e of entities) {
           const edesc = fmt(e.description);
-          lines.push(`      • ${fmt(e.name)}${edesc ? ` — ${edesc}` : ""}`);
+          lines.push(`      - ${fmt(e.name)}${edesc ? ` -- ${edesc}` : ""}`);
           const fields = Array.isArray(e.fields) ? e.fields : [];
           if (fields.length) {
             const hasDescriptions = fields.some((f: { description?: unknown }) => fmt((f as { description?: unknown }).description));
             if (hasDescriptions) {
               for (const f of fields as Array<{ name?: unknown; description?: unknown }>) {
                 const fdesc = fmt(f.description);
-                lines.push(`          - ${fmt(f.name)}${fdesc ? ` — ${fdesc}` : ""}`);
+                lines.push(`          - ${fmt(f.name)}${fdesc ? ` -- ${fdesc}` : ""}`);
               }
             } else {
               const names = fields.map((f: { name?: unknown }) => fmt(f.name)).filter(Boolean).join(", ");
@@ -327,7 +187,6 @@ export function buildPrompt(context: { contract: string; subgraphs: unknown[]; a
     })
     .join("\n\n");
 
-  // --- Deduplicated "common" ABI for the pointed contract ------------------------
   const abiBlock = abiFunctions.length
     ? abiFunctions
         .slice(0, 40)
@@ -338,20 +197,9 @@ export function buildPrompt(context: { contract: string; subgraphs: unknown[]; a
         .join("\n")
     : "    (no ABI could be fetched for this contract)";
 
-  // Compact section index to keep later references short.
   const sectionIndex = (label: string, desc: string) => `[${label}] ${desc}`;
-
-  const schemaSection = sectionIndex(
-    "SCHEMA",
-    "Return ONLY this JSON object: whatIsIt, story, parable, riskyBusiness."
-  );
-
-  const dataSection = sectionIndex(
-    "DATA",
-    "Use ONLY this data for this contract. Do not invent beyond it."
-  );
-
-  const ruleSection = (label: string, text: string) => sectionIndex("RULE", `${label}: ${text}`);
+  const schemaSection = sectionIndex("SCHEMA", "Return ONLY this JSON object: whatIsIt, story, parable, riskyBusiness.");
+  const dataSection = sectionIndex("DATA", "Use ONLY this data for this contract. Do not invent beyond it.");
 
   return `${schemaSection}
 ${dataSection}
@@ -362,33 +210,33 @@ ${subgraphStrings}
 
 ${abiBlock}
 
-⚠️ RULES (ground truth):
-- Use ONLY this contract's data. Do not compare to other contracts, name other tokens, or import outside knowledge.
+RULES (ground truth):
+- Use ONLY this contract data. Do not compare to other contracts, name other tokens, or import outside knowledge.
 - "abi:" labels are subgraph author interface names; generic neutral labels are fine.
-- Decide ONE identity from THIS contract's ABI motions + entities + data sources. If unsure, describe the strongest supported motion literally.
+- Decide ONE identity from THIS contract ABI motions + entities + data sources. If unsure, describe the strongest supported motion literally.
 - Subgraph ABI may be incomplete; rely more on entities/data sources provided.
-- Risks: count motions from THIS contract's data that restrict, modify, upgrade, pause, transfer control, change parameters, blacklist, or alter state in non-routine ways; treat administrative/privileged actions and emergency controls as risks.
+- Risks: count motions from THIS contract data that restrict, modify, upgrade, pause, transfer control, change parameters, blacklist, or alter state in non-routine ways; treat administrative/privileged actions and emergency controls as risks.
 - Keep each section distinct: do not restate the same fact in whatIsIt, story, parable, and riskyBusiness.
 - If data is sparse, say so plainly and still return valid JSON for all sections.
 
 
-🗨️ OUTPUT as JSON only (no markdown). Each section has a DISTINCT meaning — do NOT repeat the same idea twice.
+OUTPUT as JSON only (no markdown). Each section has a DISTINCT meaning - do NOT repeat the same idea twice.
 
-✒️  PROSE (story, whatIsIt, parable, riskyBusiness):
-• Ordinary English, light fantasy flavor — a reader who never heard of blockchain understands every line. Every section = several COMPLETE sentences (except parable).
-• FACT vs FANTASY: whatIsIt = FACTUAL (ABI + subgraph data + figures); story, parable and riskyBusiness = fantasy imagery about where/how the beast is SEEN and USED.
-• STORY MUST USE CONCRETE DETAILS from THIS context: mention 2-3 specifics — one entity that lives there (use its description, not its raw name), one or two motions the beast does, one fame word from the data (few/many, still/restless, distant/near, hushed/watched). Pick imagery from the data — do not reuse stock phrases across contracts.
-• whatIsIt: describe what the beast is (1-2 sentences) using the identity you chose, plus 1-2 characteristic motions and who uses it. CONFIDENT and SINGLE-MINDED.
-• No raw labels: no graph jargon, no chain names, no numbers/counts, no entity/token/function names, no hashes/ids. Imagery instead of raw labels; scale as few/many, near/far. Never invent risks, powers, or territories. If data is sparse, stay general but still provide a concrete answer.
-• riskyBusiness: if THIS contract's data shows privileged motions, emergency controls, state changes, or behaviors beyond ordinary transfers, describe the danger as friendly imagery. Otherwise, answer plainly from the data.
+PROSE (story, whatIsIt, parable, riskyBusiness):
+- Ordinary English, light fantasy flavor - a reader who never heard of blockchain understands every line. Every section = several COMPLETE sentences (except parable).
+- FACT vs FANTASY: whatIsIt = FACTUAL (ABI + subgraph data + figures); story, parable and riskyBusiness = fantasy imagery about where/how the beast is SEEN and USED.
+- STORY MUST USE CONCRETE DETAILS from THIS context: mention 2-3 specifics - one entity that lives there (use its description, not its raw name), one or two motions the beast does, one fame word from the data (few/many, still/restless, distant/near, hushed/watched). Pick imagery from the data - do not reuse stock phrases across contracts.
+- whatIsIt: describe what the beast is (1-2 sentences) using the identity you chose, plus 1-2 characteristic motions and who uses it. CONFIDENT and SINGLE-MINDED.
+- No raw labels: no graph jargon, no chain names, no numbers/counts, no entity/token/function names, no hashes/ids. Imagery instead of raw labels; scale as few/many, near/far. Never invent risks, powers, or territories. If data is sparse, stay general but still provide a concrete answer.
+- riskyBusiness: if THIS contract data shows privileged motions, emergency controls, state changes, or behaviors beyond ordinary transfers, describe the danger as friendly imagery. Otherwise, answer plainly from the data.
 
-ONLY these sections — short, each its own meaning:
+ONLY these sections - short, each its own meaning:
 
-1. "whatIsIt" (FACT, 2-3 sentences: what the beast is + 1-2 of its most characteristic motions + who uses it) — what the beast is, from ABI motions + entities. No type guessing; never quote entity/role labels.
-2. "story" (FANTASY, 4-6 sentences, <160 words; weave fame in words, no numbers/chains/hashes) — where it lives, what it does day by day, how folk gather. Imagery only, never literal names.
-3. "parable" (FABLE — NOT a story retelling) — 1-2 sentences: a tavern proverb about the MEANING of this beast (trust, trade, power), drawn from THIS contract's motions and fame, never a retelling. No names, no facts.
-4. "riskyBusiness" (FANTASY, 1-2 sentences) — describe supported risk motions as friendly imagery. Never function names.
- 
+1. "whatIsIt" (FACT, 2-3 sentences: what the beast is + 1-2 of its most characteristic motions + who uses it) - what the beast is, from ABI motions + entities. No type guessing; never quote entity/role labels.
+2. "story" (FANTASY, 4-6 sentences, <160 words; weave fame in words, no numbers/chains/hashes) - where it lives, what it does day by day, how folk gather. Imagery only, never literal names.
+3. "parable" (FABLE - NOT a story retelling) - 1-2 sentences: a tavern proverb about the MEANING of this beast (trust, trade, power), drawn from THIS contract motions and fame, never a retelling. No names, no facts.
+4. "riskyBusiness" (FANTASY, 1-2 sentences) - describe supported risk motions as friendly imagery. Never function names.
+
 {
   "whatIsIt": "",
   "story": "",
@@ -398,40 +246,13 @@ ONLY these sections — short, each its own meaning:
 }`;
 }
 
-/** Exported for debug logging — prints the exact prompt sent to AI. */
-export function debugPrompt(context: ReturnType<typeof buildAIContext>): string {
-  return buildPrompt(context);
-}
-
-/** Exported for testing — parses the raw AI response into AIAnalysis. */
-export function parseAIResponse(text: unknown): AIAnalysis | undefined {
-  // Workers AI may return object/array/number — normalize to string safely
-  let str: string;
-  if (typeof text === "string") str = text;
-  else if (text == null) str = "";
-  else if (typeof text === "object") {
-    const o = text as Record<string, unknown>;
-    // Some models wrap: { response: "..." } or { result: "..." }
-    const inner = o.response ?? o.result ?? o.text ?? o.output;
-    str = typeof inner === "string" ? inner : JSON.stringify(text);
-  } else str = String(text);
-
+function parseAIResponse(str: string): AIAnalysis | undefined {
   const parsed = tryParseFlexible(str);
-  if (!parsed || typeof parsed !== "object") {
-    // Last resort: non-JSON text still carries meaning — surface it as the
-    // story instead of discarding it. Empty text means failure: return
-    // undefined so callers can retry or fall back and the UI can show why.
-    const cleaned = str.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
-    if (!cleaned) return undefined;
-    return {
-      whatIsIt: "",
-      story: cleaned.slice(0, 2000),
-      parable: "",
-      riskyBusiness: "",
-      concepts: [],
-    };
+  if (!parsed) {
+    console.warn("[ai] failed to parse AI response");
+    console.debug("[ai] raw response:", str.slice(0, 1000));
+    return undefined;
   }
-
   const result: AIAnalysis = {
     whatIsIt: String(parsed.whatIsIt || ""),
     story: String((parsed as Record<string, unknown>).story || ""),
@@ -449,11 +270,7 @@ export function parseAIResponse(text: unknown): AIAnalysis | undefined {
               }))
               .filter((e) => e.source || e.value);
             const concept = String(c.concept || evidence[0]?.value || evidence[0]?.source || "").slice(0, 60);
-            return {
-              concept,
-              confidence: (c.confidence as "high" | "medium" | "low") || "low",
-              evidence,
-            };
+            return { concept, confidence: (c.confidence as "high" | "medium" | "low") || "low", evidence };
           })
           .filter((c) => c.concept && c.evidence.length > 0)
           .slice(0, 6)
@@ -463,30 +280,21 @@ export function parseAIResponse(text: unknown): AIAnalysis | undefined {
   return result;
 }
 
-/**
- * Best-effort JSON extraction: handles markdown fences, double-encoded JSON
- * (a string containing JSON), and prose wrapped around a {...} object.
- */
 function tryParseFlexible(str: string): Record<string, unknown> | null {
   let cleaned = str.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
-  // 1. Direct parse
   let parsed = safeJsonParse(cleaned);
-  // 1b. Direct parse succeeded but yielded a string → double-encoded JSON, decode again.
   if (typeof parsed === "string") parsed = safeJsonParse(parsed) ?? parsed;
-  // 2. Double-encoded: the whole response is a JSON string containing JSON
-  if (!parsed && cleaned.startsWith("\"")) {
+  if (!parsed && cleaned.startsWith('"')) {
     const inner = safeJsonParse(cleaned);
     if (typeof inner === "string") parsed = safeJsonParse(inner);
   }
-  // 3. Extract the outermost {...} block (model may add prose around it)
   if (!parsed) {
     const start = cleaned.indexOf("{");
     const end = cleaned.lastIndexOf("}");
     if (start !== -1 && end > start) {
       const candidate = cleaned.slice(start, end + 1);
       parsed = safeJsonParse(candidate);
-      // Still double-encoded inside? Try once more.
-      if (!parsed && candidate.startsWith("\"")) {
+      if (!parsed && candidate.startsWith('"')) {
         const inner = safeJsonParse(candidate);
         if (typeof inner === "string") parsed = safeJsonParse(inner);
       }
@@ -499,8 +307,6 @@ function safeJsonParse(s: string): unknown {
   try {
     return JSON.parse(s);
   } catch {
-    // Common model mistakes: literal newlines inside string values, or a
-    // response truncated by max_tokens. Try to repair both.
     try {
       return JSON.parse(s.replace(/\r?\n/g, "\\n"));
     } catch {
@@ -510,11 +316,6 @@ function safeJsonParse(s: string): unknown {
   }
 }
 
-/**
- * Best-effort repair of a JSON object cut off mid-way by a token limit:
- * closes any open string and any open brackets/braces so JSON.parse can run.
- * Returns undefined when nothing sensible can be recovered.
- */
 function repairTruncatedJson(s: string): unknown {
   const start = s.indexOf("{");
   if (start === -1) return undefined;
@@ -523,25 +324,15 @@ function repairTruncatedJson(s: string): unknown {
   let inString = false;
   let escaped = false;
   for (const ch of body) {
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (ch === "\\") {
-      escaped = true;
-      continue;
-    }
-    if (ch === '"') {
-      inString = !inString;
-      continue;
-    }
+    if (escaped) { escaped = false; continue; }
+    if (ch === "\\") { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
     if (inString) continue;
     if (ch === "{" || ch === "[") stack.push(ch);
     else if (ch === "}" || ch === "]") stack.pop();
   }
   let repaired = body;
   if (inString) repaired += '"';
-  // Drop a dangling partial token like `, "whatItC` before closing.
   repaired = repaired.replace(/,\s*"[^"]*"?\s*:?\s*[^,:]*$/, "") + [...stack].reverse().map((b) => (b === "{" ? "}" : "]")).join("");
   try {
     return JSON.parse(repaired);
@@ -550,19 +341,3 @@ function repairTruncatedJson(s: string): unknown {
   }
 }
 
-/**
- * Derive a deterministic numeric seed from a contract address.
- * Same address → same seed → same LLM output, across runs and machines.
- * Uses a simple hash to stay within JavaScript's safe integer range (2^53 - 1).
- */
-function seedFromAddress(address: string): number {
-  const hex = address.toLowerCase().replace(/^0x/, "").replace(/[^0-9a-f]/g, "");
-  // FNV-1a hash to produce a safe integer
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < hex.length; i++) {
-    hash ^= hex.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  // Convert to positive 32-bit integer
-  return hash >>> 0;
-}

@@ -236,8 +236,30 @@ function showResults(result: AnalysisResult) {
   // AI analysis
   renderAI(result);
 
+  // Fantasy image generation (independent of AI analysis)
+  // Use AI story if available, otherwise build prompt from contract data
+  const aiSection = document.getElementById("ai-section")!;
+  const storyText = result.aiAnalysis?.story || buildFallbackStory(result);
+  renderFantasyImage(aiSection, storyText, result.contract.address);
+
   // Sources
   renderSources(result);
+}
+
+/**
+ * Build a fallback story from contract data when AI analysis is unavailable.
+ * This ensures image generation still works without AI.
+ */
+function buildFallbackStory(result: AnalysisResult): string {
+  const address = result.contract.address.slice(0, 10) + "…";
+  const subgraphCount = result.stats.subgraphs;
+  const entityCount = result.stats.entities;
+  const networkCount = result.stats.networks;
+
+  const networks = [...new Set(result.subgraphs.map((s) => s.discovery.network).filter((v): v is string => Boolean(v)))];
+  const networkList = networks.length > 0 ? networks.join(", ") : "unknown networks";
+
+  return `A mysterious smart contract at address ${address} lives across ${networkCount} blockchain kingdoms (${networkList}). ${subgraphCount} pixie subgraphs gossip about its ${entityCount} treasure chests (entities). The contract's ecosystem reveals its secrets through event handlers and data sources, weaving a tale of decentralized magic.`;
 }
 
 function renderStats(result: AnalysisResult) {
@@ -386,6 +408,100 @@ function renderAI(result: AnalysisResult) {
     }
   }
 }
+
+/**
+ * Generate and display a fantasy-style image based on the story text.
+ * Uses Pollinations API to create a 512x512 fantasy illustration.
+ */
+async function renderFantasyImage(
+  section: HTMLElement,
+  story: string,
+  address: string
+): Promise<void> {
+  const container = document.createElement("div");
+  container.className = "ai-image-container";
+
+  const title = document.createElement("div");
+  title.className = "ai-block-title";
+  title.textContent = "🎨 The Enchanted Vision — a glimpse into the realm";
+  container.appendChild(title);
+
+  const imgWrapper = document.createElement("div");
+  imgWrapper.className = "ai-image-wrapper";
+
+  const loading = document.createElement("div");
+  loading.className = "ai-image-loading";
+  loading.textContent = "🧙 Summoning the vision from the enchanted realm...";
+  imgWrapper.appendChild(loading);
+
+  const img = document.createElement("img");
+  img.className = "ai-generated-image hidden";
+  img.alt = "Fantasy illustration of the contract ecosystem";
+  img.width = 512;
+  img.height = 512;
+  imgWrapper.appendChild(img);
+
+  container.appendChild(imgWrapper);
+  section.appendChild(container);
+
+  // Build fantasy prompt from story text
+  const fantasyPrompt = buildFantasyPrompt(story);
+  // Deterministic seed from address for consistent results
+  const seed = addressToSeed(address);
+
+  try {
+    const resp = await fetch("/api/generate-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: fantasyPrompt, seed }),
+    });
+
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error((errData as any).error || `HTTP ${resp.status}`);
+    }
+
+    const data = (await resp.json()) as { imageUrl: string; seed: number; model: string };
+
+    img.src = data.imageUrl;
+    img.classList.remove("hidden");
+    loading.classList.add("hidden");
+
+    // Add model info caption
+    const caption = document.createElement("div");
+    caption.className = "ai-image-caption";
+    caption.textContent = `✨ summoned by ${data.model} • seed ${data.seed}`;
+    container.appendChild(caption);
+  } catch (err) {
+    loading.textContent = `🔮 The vision crystal is cloudy: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
+/**
+ * Build a fantasy-style image prompt from the story text.
+ * Truncates to keep within API limits while preserving key imagery.
+ */
+function buildFantasyPrompt(story: string): string {
+  // Take first ~300 chars of story for the prompt (keep it concise)
+  const storySnippet = story.slice(0, 300).trim();
+  return `Fantasy digital art illustration: ${storySnippet}. Style: enchanted fairy-tale, magical glowing colors, whimsical forest atmosphere, storybook illustration, vibrant fantasy art, detailed magical realm, ethereal lighting, mystical creatures, ornate fantasy borders.`;
+}
+
+/**
+ * Derive a deterministic numeric seed from a contract address.
+ */
+function seedFromAddress(address: string): number {
+  const hex = address.toLowerCase().replace(/^0x/, "").replace(/[^0-9a-f]/g, "");
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < hex.length; i++) {
+    hash ^= hex.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+// Alias for consistency with existing code
+const addressToSeed = seedFromAddress;
 
 /** Format raw token amounts (wei, 1e18) into human-readable GRT values. */
 function formatTokens(raw: number | undefined): string {

@@ -163,8 +163,8 @@ async function runAnalysis(address: string): Promise<AnalysisResult> {
   console.log("[analyze] AI prompt >>>\n" + prompt + "\n<<< AI prompt");
 
   let aiError: string | undefined;
-  if (!process.env.KILO_MODEL && (!process.env.CLOUDFLARE_ACCOUNT_ID || !process.env.CLOUDFLARE_API_TOKEN)) {
-    aiError = "AI is not configured: set KILO_MODEL (Kilo Gateway) or CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN in the environment.";
+  if (!process.env.POLLINATIONS_API_KEY) {
+    aiError = "AI is not configured: set POLLINATIONS_API_KEY in the environment.";
   }
   const aiAnalysis = await callAI(aiContext).catch((e) => {
     const msg = e instanceof Error ? e.message : String(e);

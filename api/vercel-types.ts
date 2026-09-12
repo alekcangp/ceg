@@ -1,6 +1,6 @@
 export interface VercelRequest {
   method?: string;
-  body?: { address?: string };
+  body?: { address?: string; prompt?: string; seed?: number };
 }
 
 export interface VercelResponse {

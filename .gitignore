@@ -1,6 +1,7 @@
 node_modules/
 .env
 dist/
+test-output/
 
 # IDE / agent tooling
 .kilo/
@@ -9,3 +10,6 @@ dist/
 .vscode/
 *.swp
 .DS_Store
+
+# Backup files
+*.bak
