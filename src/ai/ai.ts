@@ -216,33 +216,45 @@ RULES (ground truth):
 - Decide ONE identity from THIS contract ABI motions + entities + data sources. If unsure, describe the strongest supported motion literally.
 - Subgraph ABI may be incomplete; rely more on entities/data sources provided.
 - Risks: count motions from THIS contract data that restrict, modify, upgrade, pause, transfer control, change parameters, blacklist, or alter state in non-routine ways; treat administrative/privileged actions and emergency controls as risks.
-- Keep each section distinct: do not restate the same fact in whatIsIt, story, parable, and riskyBusiness.
 - If data is sparse, say so plainly and still return valid JSON for all sections.
 
 
-OUTPUT as JSON only (no markdown). Each section has a DISTINCT meaning - do NOT repeat the same idea twice.
+OUTPUT as JSON only (no markdown).
 
-PROSE (story, whatIsIt, parable, riskyBusiness):
-- Ordinary English, light fantasy flavor - a reader who never heard of blockchain understands every line. Every section = several COMPLETE sentences (except parable).
-- FACT vs FANTASY: whatIsIt = FACTUAL (ABI + subgraph data + figures); story, parable and riskyBusiness = fantasy imagery about where/how the beast is SEEN and USED.
-- STORY MUST USE CONCRETE DETAILS from THIS context: mention 2-3 specifics - one entity that lives there (use its description, not its raw name), one or two motions the beast does, one fame word from the data (few/many, still/restless, distant/near, hushed/watched). Pick imagery from the data - do not reuse stock phrases across contracts.
-- whatIsIt: describe what the beast is (1-2 sentences) using the identity you chose, plus 1-2 characteristic motions and who uses it. CONFIDENT and SINGLE-MINDED.
-- No raw labels: no graph jargon, no chain names, no numbers/counts, no entity/token/function names, no hashes/ids. Imagery instead of raw labels; scale as few/many, near/far. Never invent risks, powers, or territories. If data is sparse, stay general but still provide a concrete answer.
-- riskyBusiness: if THIS contract data shows privileged motions, emergency controls, state changes, or behaviors beyond ordinary transfers, describe the danger as friendly imagery. Otherwise, answer plainly from the data.
+⚠️ CRITICAL: ZERO OVERLAP BETWEEN SECTIONS ⚠️
+Each section must contain COMPLETELY DIFFERENT information. Before outputting, verify:
+- No phrase from whatIsIt appears in story/parable/riskyBusiness
+- No phrase from story appears in whatIsIt/parable/riskyBusiness  
+- No phrase from parable appears in whatIsIt/story/riskyBusiness
+- No phrase from riskyBusiness appears in whatIsIt/story/parable
 
-ONLY these sections - short, each its own meaning:
+SECTION DEFINITIONS — each has ONE specific purpose:
 
-1. "whatIsIt" (FACT, 2-3 sentences: what the beast is + 1-2 of its most characteristic motions + who uses it) - what the beast is, from ABI motions + entities. No type guessing; never quote entity/role labels.
-2. "story" (FANTASY, 4-6 sentences, <160 words; weave fame in words, no numbers/chains/hashes) - where it lives, what it does day by day, how folk gather. Imagery only, never literal names.
-3. "parable" (FABLE - NOT a story retelling) - 1-2 sentences: a tavern proverb about the MEANING of this beast (trust, trade, power), drawn from THIS contract motions and fame, never a retelling. No names, no facts.
-4. "riskyBusiness" (FANTASY, 1-2 sentences) - describe supported risk motions as friendly imagery. Never function names.
+1. "whatIsIt" (FACT, 2-3 sentences):
+   - PURPOSE: Identify WHAT this contract is
+   - INCLUDE: contract type (stablecoin, DEX, governance, NFT...), primary function, key characteristics
+   - DO NOT: describe where it lives, how people use it, risks, or meaning
+
+2. "story" (FANTASY, 4-6 sentences, <160 words):
+   - PURPOSE: Paint a picture of the contract's WORLD and daily life
+   - INCLUDE: atmosphere, environment, how people interact, busy/quiet nature, fame level
+   - DO NOT: state what the contract is, mention risks, give wisdom
+
+3. "parable" (FABLE, 1-2 sentences):
+   - PURPOSE: Capture the deeper WISDOM or MEANING
+   - INCLUDE: metaphorical lesson, proverb about trust/trade/power
+   - DO NOT: retell the story, repeat phrases, state facts
+
+4. "riskyBusiness" (FANTASY, 1-2 sentences):
+   - PURPOSE: Warn about specific DANGERS
+   - ONLY include: risks actually present in THIS contract's ABI (pause, blacklist, upgrade, mint, etc.)
+   - DO NOT: describe general usage, repeat other sections
 
 {
   "whatIsIt": "",
   "story": "",
   "parable": "",
   "riskyBusiness": ""
-  
 }`;
 }
 

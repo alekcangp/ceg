@@ -361,6 +361,21 @@ function renderAI(result: AnalysisResult) {
     section.appendChild(tale);
   }
 
+  // Parable — the wisdom/meaning
+  if (ai.parable) {
+    const tale = document.createElement("div");
+    tale.className = "ai-block";
+    const t = document.createElement("div");
+    t.className = "ai-block-title";
+    t.textContent = "🦉 The Owl's Parable — tavern wisdom";
+    const p = document.createElement("p");
+    p.className = "ai-block-text";
+    p.textContent = ai.parable;
+    tale.appendChild(t);
+    tale.appendChild(p);
+    section.appendChild(tale);
+  }
+
   // Key actions — what the contract does
   if (ai.whatIsIt) {
     const block = document.createElement("div");
