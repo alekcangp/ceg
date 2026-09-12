@@ -236,33 +236,17 @@ function showResults(result: AnalysisResult) {
   // AI analysis
   renderAI(result);
 
-  // Fantasy image generation (independent of AI analysis)
-  // Use AI story if available, otherwise build prompt from contract data
-  const aiSection = document.getElementById("ai-section")!;
-  const storyText = result.aiAnalysis?.story || buildFallbackStory(result);
-  const contractTitle = result.aiAnalysis?.whatIsIt
-    ? `🎨 ${result.aiAnalysis.whatIsIt}`
-    : `🎨 Enchanted illustration of ${result.contract.address.slice(0, 10)}…`;
-  renderFantasyImage(aiSection, storyText, result.contract.address, contractTitle);
+  // Fantasy image generation - only when AI story is available
+  if (result.aiAnalysis?.story) {
+    const aiSection = document.getElementById("ai-section")!;
+    const contractTitle = result.aiAnalysis?.whatIsIt
+      ? `🎨 ${result.aiAnalysis.whatIsIt}`
+      : `🎨 Enchanted illustration of ${result.contract.address.slice(0, 10)}…`;
+    renderFantasyImage(aiSection, result.aiAnalysis.story, result.contract.address, contractTitle);
+  }
 
   // Sources
   renderSources(result);
-}
-
-/**
- * Build a fallback story from contract data when AI analysis is unavailable.
- * This ensures image generation still works without AI.
- */
-function buildFallbackStory(result: AnalysisResult): string {
-  const address = result.contract.address.slice(0, 10) + "…";
-  const subgraphCount = result.stats.subgraphs;
-  const entityCount = result.stats.entities;
-  const networkCount = result.stats.networks;
-
-  const networks = [...new Set(result.subgraphs.map((s) => s.discovery.network).filter((v): v is string => Boolean(v)))];
-  const networkList = networks.length > 0 ? networks.join(", ") : "unknown networks";
-
-  return `A mysterious smart contract at address ${address} lives across ${networkCount} blockchain kingdoms (${networkList}). ${subgraphCount} pixie subgraphs gossip about its ${entityCount} treasure chests (entities). The contract's ecosystem reveals its secrets through event handlers and data sources, weaving a tale of decentralized magic.`;
 }
 
 function renderStats(result: AnalysisResult) {
@@ -477,12 +461,9 @@ async function renderFantasyImage(
 
 /**
  * Build a fantasy-style image prompt from the story text.
- * Truncates to keep within API limits while preserving key imagery.
  */
 function buildFantasyPrompt(story: string): string {
-  // Take first ~300 chars of story for the prompt (keep it concise)
-  const storySnippet = story.slice(0, 300).trim();
-  return `Fantasy digital art illustration: ${storySnippet}. Style: enchanted fairy-tale, magical glowing colors, whimsical forest atmosphere, storybook illustration, vibrant fantasy art, detailed magical realm, ethereal lighting, mystical creatures, ornate fantasy borders.`;
+  return `Fantasy digital art illustration: ${story}. Style: enchanted fairy-tale, magical glowing colors, whimsical forest atmosphere, storybook illustration, vibrant fantasy art, detailed magical realm, ethereal lighting, mystical creatures, ornate fantasy borders.`;
 }
 
 /**
