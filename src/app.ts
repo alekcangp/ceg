@@ -240,7 +240,10 @@ function showResults(result: AnalysisResult) {
   // Use AI story if available, otherwise build prompt from contract data
   const aiSection = document.getElementById("ai-section")!;
   const storyText = result.aiAnalysis?.story || buildFallbackStory(result);
-  renderFantasyImage(aiSection, storyText, result.contract.address);
+  const contractTitle = result.aiAnalysis?.whatIsIt
+    ? `🎨 ${result.aiAnalysis.whatIsIt}`
+    : `🎨 Enchanted illustration of ${result.contract.address.slice(0, 10)}…`;
+  renderFantasyImage(aiSection, storyText, result.contract.address, contractTitle);
 
   // Sources
   renderSources(result);
@@ -416,14 +419,15 @@ function renderAI(result: AnalysisResult) {
 async function renderFantasyImage(
   section: HTMLElement,
   story: string,
-  address: string
+  address: string,
+  contractTitle?: string
 ): Promise<void> {
   const container = document.createElement("div");
   container.className = "ai-image-container";
 
   const title = document.createElement("div");
   title.className = "ai-block-title";
-  title.textContent = "🎨 The Enchanted Vision — a glimpse into the realm";
+  title.textContent = contractTitle || "🎨 Enchanted illustration of the contract realm";
   container.appendChild(title);
 
   const imgWrapper = document.createElement("div");
@@ -466,12 +470,6 @@ async function renderFantasyImage(
     img.src = data.imageUrl;
     img.classList.remove("hidden");
     loading.classList.add("hidden");
-
-    // Add model info caption
-    const caption = document.createElement("div");
-    caption.className = "ai-image-caption";
-    caption.textContent = `✨ summoned by ${data.model} • seed ${data.seed}`;
-    container.appendChild(caption);
   } catch (err) {
     loading.textContent = `🔮 The vision crystal is cloudy: ${err instanceof Error ? err.message : String(err)}`;
   }
