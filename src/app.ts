@@ -336,8 +336,6 @@ function renderAI(result: AnalysisResult) {
   section.appendChild(heading);
   section.appendChild(oracleSub);
 
-  // No hardcoded fallback content — everything comes from generation.
-  // When the AI layer fails, show the REAL error text, whatever it is.
   if (result.aiError) {
     const why = document.createElement("p");
     why.className = "loading-message";
@@ -348,54 +346,49 @@ function renderAI(result: AnalysisResult) {
 
   const ai = result.aiAnalysis;
 
-  // 📖 Owl parable — the moral, not a retelling
-  if (ai.parable) {
+  // Main story — the heart of the contract
+  if (ai.story) {
     const tale = document.createElement("div");
-    tale.className = "ai-block ai-story";
-    const t = document.createElement("div");
-    t.className = "ai-block-title";
-    t.textContent = "🦉 The Owl's Parable — one line of tavern wisdom";
-    const p = document.createElement("p");
-    p.className = "ai-block-text ai-story-text";
-    p.textContent = ai.parable;
-    tale.appendChild(t);
-    tale.appendChild(p);
+    tale.className = "ai-block";
+    const tt = document.createElement("div");
+    tt.className = "ai-block-title";
+    tt.textContent = "📖 The Tale — where the beast lives";
+    const pp = document.createElement("p");
+    pp.className = "ai-block-text";
+    pp.textContent = ai.story;
+    tale.appendChild(tt);
+    tale.appendChild(pp);
     section.appendChild(tale);
   }
 
-  const blocks: Array<[string, string]> = [
-    ["🐉 What beast be this? — the contract, plainly", ai.whatIsIt],
-    ["⚠️ Dragon warnings! — fine print, kindly (risks)", ai.riskyBusiness],
-  ];
-  for (let i = 0; i < blocks.length; i++) {
-    const [title, text] = blocks[i];
-    if (!text) continue;
+  // Key actions — what the contract does
+  if (ai.whatIsIt) {
     const block = document.createElement("div");
     block.className = "ai-block";
     const t = document.createElement("div");
     t.className = "ai-block-title";
-    t.textContent = title;
+    t.textContent = "⚡ Key Powers — what it does";
     const p = document.createElement("p");
     p.className = "ai-block-text";
-    p.textContent = text;
+    p.textContent = ai.whatIsIt;
     block.appendChild(t);
     block.appendChild(p);
     section.appendChild(block);
+  }
 
-    // 📖 The Tale — 3rd place: after "What beast be this?" and before "Dragon warnings"
-    if (i === 0 && ai.story) {
-      const tale = document.createElement("div");
-      tale.className = "ai-block";
-      const tt = document.createElement("div");
-      tt.className = "ai-block-title";
-      tt.textContent = "📖 The Tale — where the beast lives";
-      const pp = document.createElement("p");
-      pp.className = "ai-block-text";
-      pp.textContent = ai.story;
-      tale.appendChild(tt);
-      tale.appendChild(pp);
-      section.appendChild(tale);
-    }
+  // Risks — warnings
+  if (ai.riskyBusiness) {
+    const block = document.createElement("div");
+    block.className = "ai-block";
+    const t = document.createElement("div");
+    t.className = "ai-block-title";
+    t.textContent = "⚠️ Dragon Warnings — beware";
+    const p = document.createElement("p");
+    p.className = "ai-block-text";
+    p.textContent = ai.riskyBusiness;
+    block.appendChild(t);
+    block.appendChild(p);
+    section.appendChild(block);
   }
 }
 
@@ -459,8 +452,8 @@ async function renderFantasyImage(
 }
 
 /**
- * Build a unique fantasy-style image prompt with contract-specific details.
- * Each contract gets a distinct visual based on its unique properties.
+ * Build a fantasy image prompt based on contract's actual purpose.
+ * Focuses on what the contract does, not abstract scenes.
  */
 function buildFantasyPrompt(
   story: string,
@@ -468,42 +461,35 @@ function buildFantasyPrompt(
   whatIsIt?: string,
   result?: AnalysisResult
 ): string {
-  // Extract unique visual elements from contract data
+  // Get unique networks for variety
   const networks = result?.subgraphs
     .map((s) => s.discovery.network)
     .filter((n): n is string => Boolean(n));
   const uniqueNetworks = [...new Set(networks)];
   
-  // Get entity types for visual variety
-  const entityTypes = result?.subgraphs
-    .flatMap((s) => s.schema?.entities.map((e) => e.name) || [])
-    .filter(Boolean)
-    .slice(0, 3);
-  
-  // Generate unique visual theme based on address hash
+  // Derive deterministic style from address
   const addressHash = parseInt(address.slice(2, 10), 16);
-  const visualThemes = [
-    { colors: "vivid purple magenta gold", scene: "crystal caves with glowing crystals" },
-    { colors: "bright cyan blue silver", scene: "frozen waterfall with ice spirits" },
-    { colors: "warm orange red yellow", scene: "volcanic forge with fire elementals" },
-    { colors: "deep green emerald teal", scene: "ancient forest with treant guardians" },
-    { colors: "soft pink lavender white", scene: "cloud kingdom with sky whales" },
-    { colors: "electric blue neon green", scene: "cyberpunk marketplace with holograms" },
-    { colors: "gold bronze copper", scene: "treasury vault with golden dragons" },
-    { colors: "midnight blue silver stars", scene: "celestial observatory with cosmic beings" },
+  
+  // Different art styles based on contract
+  const artStyles = [
+    "digital painting, vibrant colors, magical glow",
+    "watercolor illustration, soft pastel colors, dreamy",
+    "oil painting, rich textures, dramatic lighting",
+    "anime style, bright colors, dynamic composition",
+    "concept art, cinematic lighting, epic scale",
+    "storybook illustration, whimsical, detailed",
+    "fantasy art, glowing effects, mystical atmosphere",
+    "pixel art, retro gaming style, colorful",
   ];
-  const theme = visualThemes[addressHash % visualThemes.length];
+  const style = artStyles[addressHash % artStyles.length];
   
-  // Build unique prompt with contract-specific details
-  const contractType = whatIsIt?.split(" ").slice(0, 4).join(" ") || "mystical contract";
-  const networkScene = uniqueNetworks.length > 0 
-    ? `spanning ${uniqueNetworks.length} realm${uniqueNetworks.length > 1 ? "s" : ""}`
-    : "in a magical realm";
-  const entityElements = entityTypes && entityTypes.length > 0
-    ? `featuring ${entityTypes.join(", ")}`
-    : "with magical entities";
+  // Build prompt focused on contract's purpose
+  const purpose = whatIsIt?.split(".")[0] || "a magical smart contract";
+  const networkInfo = uniqueNetworks.length > 0 
+    ? `operating on ${uniqueNetworks.join(" and ")}`
+    : "";
   
-  return `Fantasy illustration of a ${contractType} ${networkScene}, ${entityElements}. Scene: ${theme.scene}. Colors: ${theme.colors}. Story: ${story}. Style: detailed storybook art, bright vivid colors, magical atmosphere, glowing lighting, high contrast, whimsical fairy tale, 4K quality, masterpiece.`;
+  return `Fantasy art illustration representing ${purpose} ${networkInfo}. The artwork symbolizes: ${story.slice(0, 200)}. Visual style: ${style}, high quality, detailed, magical atmosphere, glowing elements, bright vivid colors.`;
 }
 
 /**
