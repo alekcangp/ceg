@@ -113,6 +113,47 @@ body {
 .ai-story-text { font-family: var(--hand); font-size: 1.35rem; line-height: 1.5; }
 .ai-block-text { line-height: 1.7; } .ai-section { margin-bottom: 26px; }
 
+/* Parable — highlighted first */
+.ai-parable {
+  background: linear-gradient(135deg, rgba(255, 230, 109, 0.25), rgba(255, 159, 90, 0.25));
+  border: 3px solid var(--gold);
+  box-shadow: 0 0 20px rgba(255, 215, 130, 0.4), inset 0 0 20px rgba(255, 230, 109, 0.1);
+  position: relative;
+  overflow: hidden;
+}
+.ai-parable::before {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(255, 230, 109, 0.1) 0%, transparent 70%);
+  animation: parableGlow 4s ease-in-out infinite;
+}
+@keyframes parableGlow {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+.parable-title {
+  font-family: var(--fancy);
+  font-size: 1.15rem;
+  color: var(--gold);
+  text-shadow: 0 0 10px rgba(255, 215, 130, 0.6);
+  position: relative;
+  z-index: 1;
+}
+.parable-text {
+  font-family: var(--hand);
+  font-size: 1.5rem;
+  line-height: 1.4;
+  color: #fff;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  position: relative;
+  z-index: 1;
+  font-weight: 600;
+}
+
 /* AI Generated Fantasy Image */
 .ai-image-container {
   margin-top: 16px;
