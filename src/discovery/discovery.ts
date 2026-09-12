@@ -80,7 +80,10 @@ export async function discoverSubgraphs(contractAddress: string): Promise<Subgra
     }
   }
   console.error("Subgraph discovery failed:", lastErr);
-  return [];
+  // Surface the failure to the caller instead of silently returning an empty
+  // list — otherwise a transient gateway error looks identical to "this
+  // contract is not indexed anywhere" and the UI shows an empty page.
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
 function toDiscovery(d: Record<string, unknown>): SubgraphDiscovery {

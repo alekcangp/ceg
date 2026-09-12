@@ -2,7 +2,7 @@ import type { AnalysisResult, Contract, SubgraphAnalysis } from "../shared/types
 import { discoverSubgraphs, rankSubgraphs } from "../src/discovery/discovery.js";
 import { analyzeSubgraph } from "../src/manifest/manifest.js";
 import { deduplicateConcepts } from "../src/normalization/normalization.js";
-import { buildAIContext, callCloudflareAI, debugPrompt, buildLocalStory } from "../src/ai/ai.js";
+import { buildAIContext, callAI, debugPrompt } from "../src/ai/ai.js";
 import { fetchABIFunctions } from "../src/manifest/manifest.js";
 import { buildGraph } from "../src/graph/builder.js";
 import type { VercelRequest, VercelResponse } from "./vercel-types.js";
@@ -75,14 +75,33 @@ async function runAnalysis(address: string): Promise<AnalysisResult> {
 
   // Step 1: Discover subgraphs via The Graph decentralized network
   log("discover:start", { address });
-  const discovered = await discoverSubgraphs(address);
+  let discovered: Awaited<ReturnType<typeof discoverSubgraphs>>;
+  try {
+    discovered = await discoverSubgraphs(address);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    log("discover:failed", msg);
+    return emptyResult(
+      contract,
+      0,
+      ["Subgraph discovery failed - please retry in a moment"],
+      "Subgraph discovery failed - " + msg
+    );
+  }
   if (discovered.length === 0) {
-    return emptyResult(contract);
+    return emptyResult(
+      contract,
+      0,
+      [],
+      "No subgraphs found indexing this contract in The Graph network top listings."
+    );
   }
 
-  // Step 2: Rank (all unique candidates: top N by signal + top N by query fees)
-  // and analyze all of them with limited concurrency (public IPFS gateways
-  // throttle parallel fetches — 10 concurrent schema fetches = instant 429s).
+  // Step 2: Analyze all unique candidates — discovery gathers the top N by
+  // curation signal AND the top N by query fees, merged and deduplicated by
+  // deployment id, so the end count lands between TOP_SUBGRAPHS and 2× it
+  // (duplicates at the intersection shrink it). Limited concurrency keeps
+  // the gateways happy (10 parallel schema fetches = instant 429s).
   const top = rankSubgraphs(discovered);
   log("discover:done", { found: discovered.length, analyzing: top.length });
   log("subgraph:top", top.map((s) => ({ id: s.id, name: s.name, network: s.network, ipfsHash: s.ipfsHash })));
@@ -144,41 +163,21 @@ async function runAnalysis(address: string): Promise<AnalysisResult> {
   console.log("[analyze] AI prompt >>>\n" + prompt + "\n<<< AI prompt");
 
   let aiError: string | undefined;
-  if (!process.env.CLOUDFLARE_ACCOUNT_ID || !process.env.CLOUDFLARE_API_TOKEN) {
-    aiError = "AI is not configured: add CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN to the environment.";
+  if (!process.env.KILO_MODEL && (!process.env.CLOUDFLARE_ACCOUNT_ID || !process.env.CLOUDFLARE_API_TOKEN)) {
+    aiError = "AI is not configured: set KILO_MODEL (Kilo Gateway) or CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN in the environment.";
   }
-  const aiAnalysis = await callCloudflareAI(aiContext).catch((e) => {
+  const aiAnalysis = await callAI(aiContext).catch((e) => {
     const msg = e instanceof Error ? e.message : String(e);
     log("ai:failed", msg);
     aiError = "AI request failed — " + msg;
     return undefined;
   });
-  log("ai:done", { hasSummary: Boolean(aiAnalysis?.bottomLine || aiAnalysis?.whatIsIt), aiError });
+  log("ai:done", { hasSummary: Boolean(aiAnalysis?.story || aiAnalysis?.whatIsIt), aiError });
 
-  // Step 5b: Fallback fairytale from real data when AI is missing or silent on story.
-  let finalAi = aiAnalysis;
-  if (!finalAi?.story) {
-    const STANDARD = new Set(["transfer", "transferfrom", "approve", "balanceof", "allowance", "decimals", "symbol", "name", "totalsupply"]);
-    const abiNames = abiFunctions.map((f) => f.name).filter((n) => n && !STANDARD.has(n.toLowerCase()));
-    const entityNames = [...new Set(analyzedList.flatMap((a) => a.schema?.entities.map((e) => e.name) ?? a.manifest?.entities ?? []))].slice(0, 8);
-    const networks = [...new Set(analyzedList.map((a) => a.discovery.network).filter((n): n is string => Boolean(n)))];
-    const story = buildLocalStory({
-      roles: finalAi?.roles?.map((r) => r.role) ?? concepts.slice(0, 1).map((c) => c.concept),
-      abiNames,
-      entityNames,
-      networks,
-      subgraphCount: analyzedList.length,
-      salt: contract.address,
-    });
-    if (finalAi) finalAi.story = story;
-    else if (!aiError) {
-      // AI not configured but data exists — still give the tale alone.
-      finalAi = { whatIsIt: "", whatItCanDo: "", ecosystemTracking: "", riskyBusiness: "", bottomLine: "", story, roles: [], concepts: [] };
-    }
-  }
-
-  // Step 6: Build graph
-  const { nodes, edges } = buildGraph(contract, analyzedList, concepts, finalAi);
+  // No hardcoded fallback: everything user-facing comes from generation.
+  // If the AI call fails, aiAnalysis stays undefined and the REAL error text
+  // travels to the UI via aiError (no fake "owl is napping" content).
+  const { nodes, edges } = buildGraph(contract, analyzedList, concepts, aiAnalysis);
   log("graph:done", { nodes: nodes.length, edges: edges.length });
 
   return {
@@ -208,7 +207,7 @@ async function runAnalysis(address: string): Promise<AnalysisResult> {
         : undefined,
     })),
     concepts: concepts.slice(0, 5).map((c) => ({ concept: c.concept, confidence: c.confidence, evidence: c.evidence.slice(0, 2) })),
-    aiAnalysis: finalAi,
+    aiAnalysis,
     aiError,
     nodes,
     edges,
@@ -247,7 +246,12 @@ function stripDiscovery(a: SubgraphAnalysis): SubgraphAnalysis {
   return { ...a, discovery: rest };
 }
 
-function emptyResult(contract: Contract, totalDiscovered = 0, errors: string[] = []): AnalysisResult {
+function emptyResult(
+  contract: Contract,
+  totalDiscovered = 0,
+  errors: string[] = [],
+  aiError?: string
+): AnalysisResult {
   return {
     contract,
     subgraphs: [],
@@ -255,6 +259,7 @@ function emptyResult(contract: Contract, totalDiscovered = 0, errors: string[] =
     nodes: [{ id: contract.address, type: "contract", label: contract.address.slice(0, 8) + "…" }],
     edges: [],
     errors,
+    aiError,
     stats: { totalDiscovered, analyzed: 0, failed: errors.length, filteredOut: 0, subgraphs: 0, entities: 0, networks: 0 },
   };
 }

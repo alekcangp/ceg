@@ -239,7 +239,7 @@ export async function callAI(context: ReturnType<typeof buildAIContext>): Promis
   if (KILO_MODEL) {
     try {
       const kilo = await callKiloAI(context);
-      if (kilo && (kilo.whatIsIt || kilo.story)) return kilo;
+      if (kilo && (kilo.whatIsIt || kilo.story || kilo.roles.length)) return kilo;
       console.warn("[ai] (kilo) empty/invalid analysis — falling back to Cloudflare");
     } catch (e) {
       console.warn("[ai] (kilo) failed — falling back to Cloudflare:", (e as Error).message);
@@ -257,6 +257,12 @@ export function buildPrompt(context: { contract: string; subgraphs: unknown[]; a
   const abiFunctions = (Array.isArray(context.abiFunctions) ? context.abiFunctions : []) as ABIFunction[];
   const fmt = (v: unknown): string => String(v ?? "").trim();
   const n = sgs.length;
+  const figures = {
+    relevantSubgraphs: n,
+    totalSignal: sgs.reduce((s, sg) => s + (Number(sg.signalAmount) || 0), 0),
+    totalQueryFees: sgs.reduce((s, sg) => s + (Number(sg.queryFeesAmount) || 0), 0),
+    chainCount: new Set(sgs.map((sg) => sg.network).filter(Boolean)).size,
+  };
   const figures = {
     relevantSubgraphs: n,
     totalSignal: sgs.reduce((s, sg) => s + (Number(sg.signalAmount) || 0), 0),
@@ -343,7 +349,7 @@ export function buildPrompt(context: { contract: string; subgraphs: unknown[]; a
 
   const schemaSection = sectionIndex(
     "SCHEMA",
-    "Return ONLY this JSON object: whatIsIt, story, parable, riskyBusiness."
+    "Return ONLY this JSON object: whatIsIt, story, parable, riskyBusiness, roles, concepts."
   );
 
   const dataSection = sectionIndex(
@@ -363,37 +369,38 @@ ${subgraphStrings}
 ${abiBlock}
 
 ⚠️ RULES (ground truth):
-- Use ONLY this contract's data. Do not compare to other contracts, name other tokens, or import outside knowledge.
-- "abi:" labels are subgraph author interface names; generic neutral labels are fine.
-- Decide ONE identity from THIS contract's ABI motions + entities + data sources. If unsure, describe the strongest supported motion literally.
-- Subgraph ABI may be incomplete; rely more on entities/data sources provided.
-- Risks: count motions from THIS contract's data that restrict, modify, upgrade, pause, transfer control, change parameters, blacklist, or alter state in non-routine ways; treat administrative/privileged actions and emergency controls as risks.
-- Keep each section distinct: do not restate the same fact in whatIsIt, story, parable, and riskyBusiness.
-- If data is sparse, say so plainly and still return valid JSON for all sections.
-
+- Use ONLY this contract's data. Do not compare to other contracts or name other tokens.
+- "abi:" labels are subgraph author interface names; generic labels like ERC20/Token are fine.
+- Decide ONE identity from ABI motions + entities + data sources. If unsure, describe the strongest motion literally.
+- Subgraph ABI may be incomplete; rely more on entities/data sources.
+- Risks: only count explicit motions like pause, unpause, blacklist, deprecate, upgradeTo, setParams, addOwner, selfdestruct. If none, say the keepers see no traps.
+- Roles: 1-5 unique roles grounded in ABI + subgraph evidence. If only one role is supported, return exactly one role. Do not invent generic lore roles; put risks in riskyBusiness.
+- Concepts: use local names copied verbatim from subgraph data; evidence must be non-empty.
 
 🗨️ OUTPUT as JSON only (no markdown). Each section has a DISTINCT meaning — do NOT repeat the same idea twice.
 
 ✒️  PROSE (story, whatIsIt, parable, riskyBusiness):
 • Ordinary English, light fantasy flavor — a reader who never heard of blockchain understands every line. Every section = several COMPLETE sentences (except parable).
-• FACT vs FANTASY: whatIsIt = FACTUAL (ABI + subgraph data + figures); story, parable and riskyBusiness = fantasy imagery about where/how the beast is SEEN and USED.
+• FACT vs FANTASY: whatIsIt, roles, concepts = FACTUAL (ABI + subgraph data + figures); story, parable and riskyBusiness = fantasy imagery about where/how the beast is SEEN and USED.
 • STORY MUST USE CONCRETE DETAILS from THIS context: mention 2-3 specifics — one entity that lives there (use its description, not its raw name), one or two motions the beast does, one fame word from the data (few/many, still/restless, distant/near, hushed/watched). Pick imagery from the data — do not reuse stock phrases across contracts.
 • whatIsIt: describe what the beast is (1-2 sentences) using the identity you chose, plus 1-2 characteristic motions and who uses it. CONFIDENT and SINGLE-MINDED.
-• No raw labels: no graph jargon, no chain names, no numbers/counts, no entity/token/function names, no hashes/ids. Imagery instead of raw labels; scale as few/many, near/far. Never invent risks, powers, or territories. If data is sparse, stay general but still provide a concrete answer.
-• riskyBusiness: if THIS contract's data shows privileged motions, emergency controls, state changes, or behaviors beyond ordinary transfers, describe the danger as friendly imagery. Otherwise, answer plainly from the data.
+• No raw labels: no graph jargon, no chain names, no numbers/counts, no entity/token/function names, no hashes/ids. Imagery instead of raw labels; scale as few/many, near/far. No absolute claims unless that motion is in the ABI — prefer "locals say...". Never invent risks, powers, territories. If data is sparse, watchers see only glimpses — but still pick a concrete detail.
 
 ONLY these sections — short, each its own meaning:
 
 1. "whatIsIt" (FACT, 2-3 sentences: what the beast is + 1-2 of its most characteristic motions + who uses it) — what the beast is, from ABI motions + entities. No type guessing; never quote entity/role labels.
 2. "story" (FANTASY, 4-6 sentences, <160 words; weave fame in words, no numbers/chains/hashes) — where it lives, what it does day by day, how folk gather. Imagery only, never literal names.
-3. "parable" (FABLE — NOT a story retelling) — 1-2 sentences: a tavern proverb about the MEANING of this beast (trust, trade, power), drawn from THIS contract's motions and fame, never a retelling. No names, no facts.
-4. "riskyBusiness" (FANTASY, 1-2 sentences) — describe supported risk motions as friendly imagery. Never function names.
+ 3. "parable" (FABLE u2014 NOT a story retelling) u2014 1-2 sentences: a tavern proverb about the MEANING of this beast (trust, trade, power), drawn from THIS contract's motions and fame, never a retelling. No names, no facts.
+ 4. "riskyBusiness" (FANTASY, 1-2 sentences) u2014 one image per ABI risk motion present; if none: the keepers see no traps. Never function names.
+ 5. "roles" (FACT) — {role, confidence}, 1-5 roles per ROLES. NEVER empty.
  
 {
   "whatIsIt": "",
   "story": "",
+
   "parable": "",
-  "riskyBusiness": ""
+  "riskyBusiness": "",
+  "roles": [{"role": "", "confidence": "high|medium|low"}],
   
 }`;
 }
@@ -428,6 +435,7 @@ export function parseAIResponse(text: unknown): AIAnalysis | undefined {
       story: cleaned.slice(0, 2000),
       parable: "",
       riskyBusiness: "",
+      roles: [],
       concepts: [],
     };
   }
@@ -437,6 +445,12 @@ export function parseAIResponse(text: unknown): AIAnalysis | undefined {
     story: String((parsed as Record<string, unknown>).story || ""),
     parable: String((parsed as Record<string, unknown>).parable || ""),
     riskyBusiness: String(parsed.riskyBusiness || ""),
+    roles: Array.isArray(parsed.roles)
+      ? parsed.roles.map((r: Record<string, string>) => ({
+          role: String(r.role || "Unknown"),
+          confidence: (r.confidence as "high" | "medium" | "low") || "low",
+        }))
+      : [],
     concepts: Array.isArray(parsed.concepts)
       ? parsed.concepts
           .map((c: Record<string, unknown>) => {
@@ -459,7 +473,7 @@ export function parseAIResponse(text: unknown): AIAnalysis | undefined {
           .slice(0, 6)
       : [],
   };
-  if (!result.whatIsIt && !result.story) return undefined;
+  if (!result.whatIsIt && !result.story && !result.roles.length) return undefined;
   return result;
 }
 

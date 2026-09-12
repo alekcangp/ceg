@@ -206,15 +206,15 @@ function parseManifest(yamlText: string, _contractAddress: string): ParsedManife
       }
     }
 
-    // ABI file references from this data source's mapping.
-    // A manifest may list several ABI files per data source (e.g. the contract's
-    // own ABI plus auxiliary token/ERC20 ABIs used by its handlers). Only the
-    // PRIMARY ABI — the one whose name matches dataSource.source.abi — describes
-    // the queried contract itself. Auxiliary ABIs describe OTHER contracts and
-    // must NOT be merged into role detection, otherwise phantom functions from
-    // unrelated tokens pollute the result.
-    const srcAbiName = srcBlock?.abi ? String(srcBlock.abi) : undefined;
+    // ABI file references from this data source's mapping. The data source was
+    // already selected by the queried contract address, so prefer ABI files
+    // whose alias matches the data source's own ABI (source.abi): auxiliary
+    // ABIs (unrelated token templates, libraries) referenced by the same
+    // mapping must not contaminate the merged ABI. If no alias matches,
+    // keep all files and let the consensus filter decide.
     if (mapping?.abis && Array.isArray(mapping.abis)) {
+      const abiAlias = srcBlock?.abi ? String(srcBlock.abi) : "";
+      const collected: { name: string; file: string }[] = [];
       for (const abi of mapping.abis) {
         if (!abi || typeof abi !== "object") continue;
         const a = abi as Record<string, unknown>;
@@ -227,10 +227,12 @@ function parseManifest(yamlText: string, _contractAddress: string): ParsedManife
           const link = fileVal as Record<string, string>;
           if (link["/"]) file = link["/"];
         }
-        // Skip auxiliary ABIs that don't match the data source's own ABI alias.
-        if (srcAbiName && name && name.toLowerCase() !== srcAbiName.toLowerCase()) continue;
-        if (name && file) rawAbis.push({ name, file });
+        if (name && file) collected.push({ name, file });
       }
+      const matching = collected.filter(
+        (c) => c.name.toLowerCase() === abiAlias.toLowerCase(),
+      );
+      rawAbis.push(...(matching.length > 0 ? matching : collected));
     }
   }
 
@@ -333,27 +335,28 @@ function parseFields(body: string): Field[] {
  *  - A complete official ABI (e.g. the full Tether ABI) may be the ONLY file that
  *    carries risk/control functions (pause, blacklist, issue, redeem, ...). Those
  *    are important and MUST NOT be dropped. We therefore also include ALL functions
- *    from the LARGEST ABI file that still covers a substantial part of the consensus
- *    core (it is an extension of the common interface, not a mismatched template).
+ *    from the LARGEST ABI file that contains ALL functions of the consensus core
+ *    (it is an extension of the common interface, not a mismatched template).
  */
 export async function fetchABIFunctions(
   abis: { name: string; file: string }[]
 ): Promise<ABIFunction[]> {
-  const seenFiles = new Set<string>();
-
-  // Deduplicate files to avoid fetching the same IPFS hash multiple times
-  const uniqueAbis = abis.filter((abi) => {
+  // Deduplicate by file hash BEFORE fetching: different subgraphs often
+  // reference the very same ABI file. Fewer gateway fetches = fewer 429s
+  // from the throttling public IPFS gateway, and identical files must not
+  // inflate the consensus "distinct ABI files" count below.
+  const byHash = new Map<string, { name: string; file: string }>();
+  for (const abi of abis) {
     const hash = extractIPFSHash(abi.file);
-    if (!hash || seenFiles.has(hash)) return false;
-    seenFiles.add(hash);
-    return true;
-  });
+    if (hash && !byHash.has(hash)) byHash.set(hash, abi);
+  }
+  const unique = [...byHash.values()];
 
-  // Fetch each ABI file -> list of functions
+  // Fetch each unique ABI file -> list of functions
   const CONCURRENCY = 3;
   const perFile: ABIFunction[][] = [];
-  for (let i = 0; i < uniqueAbis.length; i += CONCURRENCY) {
-    const chunk = uniqueAbis.slice(i, i + CONCURRENCY);
+  for (let i = 0; i < unique.length; i += CONCURRENCY) {
+    const chunk = unique.slice(i, i + CONCURRENCY);
     const results = await Promise.all(
       chunk.map(async (abi): Promise<ABIFunction[]> => {
         const hash = extractIPFSHash(abi.file)!;
@@ -389,8 +392,8 @@ export async function fetchABIFunctions(
     if (files.size >= 2) coreSignatures.add(sig);
   }
 
-  // Pick the canonical (complete) ABI: the largest file that still covers
-  // >=50% of the consensus core, so it is an extension of the common interface
+  // Pick the canonical (complete) ABI: the largest file that contains ALL
+  // consensus-core functions, so it is an extension of the common interface
   // rather than a mismatched/unrelated ABI template.
   let canonicalFile: Set<string> | null = null;
   if (coreSignatures.size > 0 && perFile.length > 1) {
@@ -398,8 +401,9 @@ export async function fetchABIFunctions(
       const fileSigs = new Set(file.map((fn) => `${fn.name}(${fn.inputs.map((i) => i.type).join(",")})`));
       let overlap = 0;
       for (const sig of coreSignatures) if (fileSigs.has(sig)) overlap++;
-      const coverage = overlap / coreSignatures.size;
-      if (coverage < 0.5) continue;
+      // Only a file that carries every consensus function is a true extension of
+      // the common interface — otherwise it may be an unrelated/mismatched ABI.
+      if (overlap !== coreSignatures.size) continue;
       if (!canonicalFile || fileSigs.size > canonicalFile.size) canonicalFile = fileSigs;
     }
   }

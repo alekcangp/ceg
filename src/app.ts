@@ -275,8 +275,7 @@ function renderOverview(result: AnalysisResult) {
   box.innerHTML = "";
 
   const networks = [...new Set(result.subgraphs.map((s) => s.discovery.network).filter((v): v is string => Boolean(v)))];
-  const keyRoles = (result.aiAnalysis?.roles ?? []).map((r) => r.role).filter((v): v is string => Boolean(v));
-  if (networks.length || keyRoles.length) {
+  if (networks.length) {
     const grid = document.createElement("div");
     grid.className = "overview-grid";
 
@@ -307,7 +306,6 @@ function renderOverview(result: AnalysisResult) {
     };
 
     row("Magic Kingdoms", "🌍", networks, "var(--gold)");
-    row("Hero Roles", "🦸", keyRoles, "var(--gold)");
 
     box.appendChild(grid);
   }
@@ -326,24 +324,20 @@ function renderAI(result: AnalysisResult) {
   section.appendChild(heading);
   section.appendChild(oracleSub);
 
-  if (!result.aiAnalysis) {
-    const fallback = document.createElement("p");
-    fallback.className = "ai-summary ai-fallback";
-    fallback.textContent = "🦉 The oracle-owl is napping... Showing treasure found by brave squirrels instead!";
-    section.appendChild(fallback);
-    if (result.aiError) {
-      const why = document.createElement("p");
-      why.className = "loading-message";
-      why.textContent = result.aiError;
-      section.appendChild(why);
-    }
-    return;
+  // No hardcoded fallback content — everything comes from generation.
+  // When the AI layer fails, show the REAL error text, whatever it is.
+  if (result.aiError) {
+    const why = document.createElement("p");
+    why.className = "loading-message";
+    why.textContent = result.aiError;
+    section.appendChild(why);
   }
+  if (!result.aiAnalysis) return;
 
   const ai = result.aiAnalysis;
 
   // 📖 Owl parable — the moral, not a retelling
-  if (ai.story) {
+  if (ai.parable) {
     const tale = document.createElement("div");
     tale.className = "ai-block ai-story";
     const t = document.createElement("div");
@@ -351,7 +345,7 @@ function renderAI(result: AnalysisResult) {
     t.textContent = "🦉 The Owl's Parable — one line of tavern wisdom";
     const p = document.createElement("p");
     p.className = "ai-block-text ai-story-text";
-    p.textContent = ai.story;
+    p.textContent = ai.parable;
     tale.appendChild(t);
     tale.appendChild(p);
     section.appendChild(tale);
@@ -359,12 +353,10 @@ function renderAI(result: AnalysisResult) {
 
   const blocks: Array<[string, string]> = [
     ["🐉 What beast be this? — the contract, plainly", ai.whatIsIt],
-    ["🪄 What spells can it cast? — its powers, simply", ai.whatItCanDo],
-    ["🧚 Pixie gossip — where this beast roams (ecosystem)", ai.ecosystemTracking],
     ["⚠️ Dragon warnings! — fine print, kindly (risks)", ai.riskyBusiness],
-    ["🌟 Moral o' the story — bottom line over butterbeer", ai.bottomLine],
   ];
-  for (const [title, text] of blocks) {
+  for (let i = 0; i < blocks.length; i++) {
+    const [title, text] = blocks[i];
     if (!text) continue;
     const block = document.createElement("div");
     block.className = "ai-block";
@@ -377,8 +369,22 @@ function renderAI(result: AnalysisResult) {
     block.appendChild(t);
     block.appendChild(p);
     section.appendChild(block);
-  }
 
+    // 📖 The Tale — 3rd place: after "What beast be this?" and before "Dragon warnings"
+    if (i === 0 && ai.story) {
+      const tale = document.createElement("div");
+      tale.className = "ai-block";
+      const tt = document.createElement("div");
+      tt.className = "ai-block-title";
+      tt.textContent = "📖 The Tale — where the beast lives";
+      const pp = document.createElement("p");
+      pp.className = "ai-block-text";
+      pp.textContent = ai.story;
+      tale.appendChild(tt);
+      tale.appendChild(pp);
+      section.appendChild(tale);
+    }
+  }
 }
 
 /** Format raw token amounts (wei, 1e18) into human-readable GRT values. */

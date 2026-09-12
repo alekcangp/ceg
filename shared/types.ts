@@ -96,25 +96,15 @@ export interface EcosystemEdge {
   label?: string;
 }
 
-export interface AIRole {
-  role: string;
-  confidence: "high" | "medium" | "low";
-}
-
 export interface AIAnalysis {
-  /** "What is this thing anyway?" — plain-English identity of the contract. */
+  /** "What is this thing anyway?" — plain-English identity of the contract (FACT, 2-3 sentences). */
   whatIsIt: string;
-  /** "What can it actually do?" — ABI explained simply. */
-  whatItCanDo: string;
-  /** "What is the ecosystem tracking behind the scenes?" — subgraph entities explained simply. */
-  ecosystemTracking: string;
-  /** "The Bottom Line" — short human summary. */
-  bottomLine: string;
+  /** The heart of the tale: a fairytale story ABOUT the contract, woven from the subgraph ecosystem (fame woven in words). */
+  story: string;
+  /** "The owl's saying" — a short parable/proverb capturing the meaning of this beast, drawn from its motions and fame (FABLE). */
+  parable: string;
   /** "Risky business?" — friendly risks & caveats of interacting with it. */
   riskyBusiness: string;
-  /** "Once upon a time..." — short fairytale story about the contract, grounded in real analysis data. */
-  story: string;
-  roles: AIRole[];
   concepts: SemanticConcept[];
   /** Short honest caveats / ambiguity warnings from the AI. */
   notices?: string[];
