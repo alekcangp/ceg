@@ -17,7 +17,7 @@ const TYPE_COLORS: Record<string, string> = {
   concept: "#c6ff4d",
 };
 
-const TYPE_SHAPES: Record<string, "circle" | "hex" | "diamond"> = {
+const TYPE_SHAPES: Record<string, "circle" | "hex"> = {
   contract: "circle",
   subgraph: "hex",
   entity: "circle",
@@ -35,7 +35,6 @@ export class GraphRenderer {
   private panY = 0;
   private isDragging = false;
   private dragNode: PositionedNode | null = null;
-  private dragStart = { x: 0, y: 0 };
   private panStart = { x: 0, y: 0 };
   private hoveredNode: string | null = null;
   /** Entity whose popup is pinned visible (until another node is activated or reset). */
@@ -259,8 +258,6 @@ export class GraphRenderer {
       let shapeEl: SVGElement;
       if (shape === "hex") {
         shapeEl = this.createHexagon(node.radius);
-      } else if (shape === "diamond") {
-        shapeEl = this.createDiamond(node.radius);
       } else {
         shapeEl = document.createElementNS(ns, "circle");
         shapeEl.setAttribute("r", String(node.radius));
@@ -293,7 +290,7 @@ export class GraphRenderer {
       label.textContent = node.label;
       g.appendChild(label);
 
-      g.addEventListener("mouseenter", (e) => this.onHover(node.id, e));
+      g.addEventListener("mouseenter", () => this.onHover(node.id));
       g.addEventListener("mouseleave", () => this.onHoverEnd());
       g.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -326,13 +323,6 @@ export class GraphRenderer {
     return poly;
   }
 
-  private createDiamond(r: number): SVGElement {
-    const ns = "http://www.w3.org/2000/svg";
-    const poly = document.createElementNS(ns, "polygon");
-    poly.setAttribute("points", `0,${-r} ${r},0 0,${r} ${-r},0`);
-    return poly;
-  }
-
   private ensureGlowFilter() {
     if (this.svg.querySelector("#glow")) return;
     const ns = "http://www.w3.org/2000/svg";
@@ -359,7 +349,7 @@ export class GraphRenderer {
     this.svg.insertBefore(defs, this.svg.firstChild);
   }
 
-  private onHover(id: string, e: MouseEvent) {
+  private onHover(id: string) {
     this.hoveredNode = id;
     const node = this.nodeMap.get(id);
     if (!node) return;
@@ -440,7 +430,6 @@ export class GraphRenderer {
         const id = nodeEl.getAttribute("data-id");
         if (id) {
           this.dragNode = this.nodeMap.get(id) || null;
-          this.dragStart = { x: e.clientX, y: e.clientY };
         }
       } else {
         panning = true;

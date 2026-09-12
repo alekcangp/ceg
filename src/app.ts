@@ -10,11 +10,6 @@ const LOADING_MESSAGES = [
   "🔮 The stars say: ecosystem almost revealed!",
 ];
 
-const EMPTY_MESSAGES = [
-  "No ecosystem drama detected.",
-  "This contract appears to be living a quiet life.",
-];
-
 let renderer: GraphRenderer | null = null;
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -29,7 +24,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const svg = document.getElementById("ecosystem-graph") as unknown as SVGSVGElement;
   const tooltip = document.getElementById("graph-tooltip") as HTMLDivElement;
   renderer = new GraphRenderer(svg, tooltip);
-  renderer.setOnNodeClick((node) => showInfoPanel(node, currentResult));
+  renderer.setOnNodeClick((node) => showInfoPanel(node));
   renderer.setData([], []);
 
   document.getElementById("zoom-in")?.addEventListener("click", () => renderer?.zoomIn());
@@ -104,8 +99,6 @@ function stopLoadingAnimation() {
   }
 }
 
-let currentResult: AnalysisResult | null = null;
-
 async function analyze(address: string) {
   const form = document.getElementById("search-form") as HTMLFormElement;
   const input = document.getElementById("address-input") as HTMLInputElement;
@@ -149,7 +142,6 @@ async function analyze(address: string) {
       return;
     }
 
-    currentResult = data;
     showResults(data);
   } catch (err) {
     console.error("[app] analyze:fetch-failed", err);
@@ -242,7 +234,6 @@ function showResults(result: AnalysisResult) {
     renderFantasyImage(
       aiSection,
       result.aiAnalysis.story,
-      result.contract.address,
       result.aiAnalysis.whatIsIt,
       result
     );
@@ -414,7 +405,6 @@ function renderAI(result: AnalysisResult) {
 async function renderFantasyImage(
   section: HTMLElement,
   story: string,
-  address: string,
   whatIsIt?: string,
   result?: AnalysisResult
 ): Promise<void> {
@@ -439,10 +429,11 @@ async function renderFantasyImage(
   container.appendChild(imgWrapper);
   section.appendChild(container);
 
-  // Build unique fantasy prompt with contract-specific details
-  const fantasyPrompt = buildFantasyPrompt(story, address, whatIsIt, result);
-  // Deterministic seed from address for consistent results
-  const seed = addressToSeed(address);
+  // Build unique fantasy prompt from the AI's visual direction.
+  // A RANDOM seed per call (not derived from the address) so the image
+  // varies slightly on every generation, while skipping any cache.
+  const fantasyPrompt = buildFantasyPrompt(story, whatIsIt, result);
+  const seed = Math.floor(Math.random() * 1_000_000);
 
   try {
     const resp = await fetch("/api/generate-image", {
@@ -456,7 +447,7 @@ async function renderFantasyImage(
       throw new Error((errData as any).error || `HTTP ${resp.status}`);
     }
 
-    const data = (await resp.json()) as { imageUrl: string; seed: string; model: string };
+    const data = (await resp.json()) as { imageUrl: string; model: string };
 
     img.src = data.imageUrl;
     img.classList.remove("hidden");
@@ -467,61 +458,55 @@ async function renderFantasyImage(
 }
 
 /**
- * Build a fantasy image prompt based on contract's actual purpose.
- * Focuses on what the contract does, not abstract scenes.
+ * Build a fantasy image prompt from the AI's visual direction.
+ * The scene carries the contract's meaning via symbolic objects; the
+ * style/palette are freely invented by the AI. No hardcoded style
+ * catalogue, no deterministic seed (image varies slightly per visit).
  */
 function buildFantasyPrompt(
   story: string,
-  address: string,
   whatIsIt?: string,
   result?: AnalysisResult
 ): string {
-  // Get unique networks for variety
+  // Ground the scene in the actual networks of this contract
   const networks = result?.subgraphs
     .map((s) => s.discovery.network)
     .filter((n): n is string => Boolean(n));
   const uniqueNetworks = [...new Set(networks)];
-  
-  // Derive deterministic style from address
-  const addressHash = parseInt(address.slice(2, 10), 16);
-  
-  // Different art styles based on contract
-  const artStyles = [
-    "digital painting, vibrant colors, magical glow",
-    "watercolor illustration, soft pastel colors, dreamy",
-    "oil painting, rich textures, dramatic lighting",
-    "anime style, bright colors, dynamic composition",
-    "concept art, cinematic lighting, epic scale",
-    "storybook illustration, whimsical, detailed",
-    "fantasy art, glowing effects, mystical atmosphere",
-    "pixel art, retro gaming style, colorful",
-  ];
-  const style = artStyles[addressHash % artStyles.length];
-  
-  // Build prompt focused on contract's purpose
-  const purpose = whatIsIt?.split(".")[0] || "a magical smart contract";
-  const networkInfo = uniqueNetworks.length > 0 
-    ? `operating on ${uniqueNetworks.join(" and ")}`
+  const networkInfo = uniqueNetworks.length > 0
+    ? ` Set in the realm of ${uniqueNetworks.join(" and ")}.`
     : "";
-  
-  return `Fantasy art illustration representing ${purpose} ${networkInfo}. The artwork symbolizes: ${story.slice(0, 200)}. Visual style: ${style}, high quality, detailed, magical atmosphere, glowing elements, bright vivid colors.`;
-}
 
-/**
- * Derive a deterministic numeric seed from a contract address.
- */
-function seedFromAddress(address: string): string {
-  const hex = address.toLowerCase().replace(/^0x/, "").replace(/[^0-9a-f]/g, "");
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < hex.length; i++) {
-    hash ^= hex.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString();
-}
+  const ai = result?.aiAnalysis;
+  const scene = (ai?.visualScene || "").trim();
+  const style = (ai?.visualStyle || "").trim();
 
-// Alias for consistency with existing code
-const addressToSeed = seedFromAddress;
+  // Prefer the AI-invented scene (meaning-bearing); fall back to the
+  // story if the scene is missing (older responses / AI omissions).
+  const visual = scene
+    ? `Scene: ${scene}.`
+    : `Scene inspired by the story: ${story.slice(0, 200)}.`;
+
+  // Semantic anchor: the illustration must clearly show WHAT the contract
+  // is for, so the image isn't just a pretty (vague) picture.
+  const purposeSentence = (whatIsIt || "").trim().split(/[.!?]\s/)[0].trim();
+  const semanticAnchor = purposeSentence
+    ? ` The meaning to convey: ${purposeSentence}${purposeSentence.endsWith(".") ? "" : "."}`
+    : "";
+
+  const styleClause = style
+    ? ` Art direction: ${style}.`
+    : " Whimsical illustration, rich colors.";
+
+  return (
+    "Illustration that reveals the contract's meaning through its central entity." +
+    semanticAnchor +
+    visual +
+    networkInfo +
+    styleClause +
+    " Square 1:1 composition, high detail, no text, no letters, no digits, no UI, no watermark."
+  );
+}
 
 /** Format raw token amounts (wei, 1e18) into human-readable GRT values. */
 function formatTokens(raw: number | undefined): string {
@@ -587,7 +572,7 @@ function renderSources(result: AnalysisResult) {
   section.appendChild(table);
 }
 
-function showInfoPanel(node: EcosystemNode, result: AnalysisResult | null) {
+function showInfoPanel(node: EcosystemNode) {
   const panel = document.getElementById("info-panel")!;
   panel.classList.remove("hidden");
   panel.innerHTML = "";
@@ -608,37 +593,7 @@ function showInfoPanel(node: EcosystemNode, result: AnalysisResult | null) {
 
   const meta = node.metadata || {};
 
-  if (node.type === "role" || node.type === "concept") {
-    const conf = typeof meta.confidence === "string" ? meta.confidence : "UNKNOWN";
-    const confDiv = infoRow("Confidence", conf.toUpperCase());
-    confDiv.querySelector(".info-value")?.classList.add(`confidence-${conf}`);
-    panel.appendChild(confDiv);
-
-    // Find matching concept in results
-    const concept = result?.concepts.find((c) => c.concept === node.label);
-    if (concept && concept.evidence.length > 0) {
-      const evDiv = infoLabel("Evidence");
-      const ul = document.createElement("ul");
-      ul.className = "evidence-list";
-      for (const e of concept.evidence.slice(0, 10)) {
-        const li = document.createElement("li");
-        li.className = "evidence-item";
-        const type = document.createElement("span");
-        type.className = "evidence-type";
-        type.textContent = e.type;
-        li.appendChild(type);
-        li.appendChild(document.createTextNode(` — ${e.source}: ${e.value}`));
-        ul.appendChild(li);
-      }
-      evDiv.appendChild(ul);
-      panel.appendChild(evDiv);
-    }
-
-    const sources = meta.sources as string[] | undefined;
-    if (sources) {
-      panel.appendChild(infoRow("Sources", `${sources.length} subgraphs`));
-    }
-  } else if (node.type === "subgraph") {
+  if (node.type === "subgraph") {
     if (meta.network) {
       panel.appendChild(infoRow("Network", String(meta.network)));
     }

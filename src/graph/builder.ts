@@ -1,18 +1,16 @@
-import type { Contract, SubgraphAnalysis, SemanticConcept, AIAnalysis, EcosystemNode, EcosystemEdge } from "../../shared/types.js";
+import type { Contract, SubgraphAnalysis, EcosystemNode, EcosystemEdge } from "../../shared/types.js";
 
 /**
  * Build the ecosystem graph nodes and edges from analysis results.
  * Topology: contract <-> subgraph <-> entity.
  * No duplicate edges: entities attach ONLY to their subgraph,
  * never to the contract.
- * AI-detected roles/concepts are NOT rendered as graph nodes
- * (they stay in the concepts[]/aiAnalysis payload only).
+ * AI analysis (story/parable/visual) is deliberately NOT rendered as graph
+ * nodes — it travels to the UI via the aiAnalysis payload only.
  */
 export function buildGraph(
   contract: Contract,
-  subgraphs: SubgraphAnalysis[],
-  concepts: SemanticConcept[],
-  _aiAnalysis?: AIAnalysis
+  subgraphs: SubgraphAnalysis[]
 ): { nodes: EcosystemNode[]; edges: EcosystemEdge[] } {
   const nodes: EcosystemNode[] = [];
   const edges: EcosystemEdge[] = [];

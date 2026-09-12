@@ -14,7 +14,6 @@ export interface SubgraphDiscovery {
   ipfsHash?: string;
   queryCount?: number;
   signalAmount?: number;
-  rank?: number;
   manifestText?: string;
   queryFeesAmount?: string;
   signalledTokens?: string;
@@ -105,15 +104,16 @@ export interface AIAnalysis {
   parable: string;
   /** "Risky business?" — friendly risks & caveats of interacting with it. */
   riskyBusiness: string;
+  /** VISION: a ready-to-draw scene (epoch, genre, location, time, character, symbolic objects) that carries the contract's MEANING. Freely invented by the AI — no hardcoded catalogues. */
+  visualScene?: string;
+  /** STYLE: freely invented art technique + 2-3 color palette + lighting/mood for the image. */
+  visualStyle?: string;
   concepts: SemanticConcept[];
-  /** Short honest caveats / ambiguity warnings from the AI. */
-  notices?: string[];
 }
 
 export interface AnalysisResult {
   contract: Contract;
   subgraphs: SubgraphAnalysis[];
-  concepts: SemanticConcept[];
   aiAnalysis?: AIAnalysis;
   /** Human-readable reason AI analysis is missing (when aiAnalysis is undefined). */
   aiError?: string;

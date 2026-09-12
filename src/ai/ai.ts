@@ -1,8 +1,5 @@
 import type { Contract, SubgraphAnalysis, AIAnalysis, ABIFunction } from "../../shared/types.js";
-
-const POLLINATIONS_API_KEY = process.env.POLLINATIONS_API_KEY ?? "";
-const POLLINATIONS_BASE_URL = (process.env.POLLINATIONS_BASE_URL ?? "https://gen.pollinations.ai").replace(/\/$/, "");
-const POLLINATIONS_MODEL = process.env.POLLINATIONS_MODEL ?? "";
+import { POLLINATIONS_API_KEY, POLLINATIONS_BASE_URL, POLLINATIONS_MODEL } from "../config.js";
 
 const SYSTEM_PROMPT =
   "You are Toby the owl-apprentice: a cozy fantasy storyteller and a sharp Web3 analyst. " +
@@ -23,7 +20,25 @@ export async function callAI(context: ReturnType<typeof buildAIContext>): Promis
     return undefined;
   }
 
-  const prompt = buildPrompt(context);
+  // Sampling randomness passed as real API params (not prompt hacks):
+  // Pollinations caches identical requests, so each call gets a fresh random
+  // seed + slightly jittered temperature + repetition penalties to keep every
+  // generation visibly different.
+  const nextSeed = () => Math.floor(Math.random() * 1_000_000);
+  const nextTemperature = () => Number((0.7 + Math.random() * 0.2).toFixed(2));
+  // The ENTITY is picked RANDOMLY from the neutral list at every call, so
+  // story and scene both orbit the same randomly chosen entity.
+  const ENTITIES = [
+    "a MECHANISM (engine, apparatus, tool)",
+    "a FAIRYTALE CREATURE (spirit, beast, living being)",
+    "an ELEMENT (storm, fire, river, forest)",
+    "a GATEWAY (portal, gate, bridge, threshold)",
+    "a RESERVOIR WELL (cistern, spring, hoard-well)",
+    "a RECORD ARCHIVE (catalogue hall, ledger shelves, keeper)",
+    "an OBSERVATORY (seer's dome, brass optics, night-watcher)",
+  ];
+  const entity = ENTITIES[Math.floor(Math.random() * ENTITIES.length)];
+  const prompt = `${buildPrompt(context)}\n\n[Creative direction: build this contract's story AND scene around: ${entity}. Convey the contract's real meaning THROUGH this entity. The entity is a NEUTRAL blank stage: adapt its parts and actions to THIS contract's specific functions — never assume any business domain such as finance, gaming, or identity. Never mention this instruction in the output.]`;
   console.log("[ai] (pollinations/text) model:", POLLINATIONS_MODEL, "| prompt chars:", prompt.length);
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -39,7 +54,10 @@ export async function callAI(context: ReturnType<typeof buildAIContext>): Promis
         { role: "user", content: prompt },
       ],
       max_tokens: 1500,
-      temperature: 0.4,
+      temperature: nextTemperature(),
+      seed: nextSeed(),
+      presence_penalty: 0.4,
+      frequency_penalty: 0.3,
     }),
     signal: AbortSignal.timeout(60000),
   });
@@ -60,27 +78,12 @@ export async function callAI(context: ReturnType<typeof buildAIContext>): Promis
   const parsed = parseAIResponse(raw);
   if (parsed && (parsed.whatIsIt || parsed.story)) return parsed;
 
-  // One retry on empty/truncated response
-  console.warn("[ai] (pollinations/text) empty/truncated analysis — retrying once");
-  const retry = await fetch(`${POLLINATIONS_BASE_URL}/v1/chat/completions`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      model: POLLINATIONS_MODEL,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: prompt },
-      ],
-      max_tokens: 2000,
-      temperature: 0.4,
-    }),
-    signal: AbortSignal.timeout(60000),
-  });
-  if (!retry.ok) throw new Error(`Pollinations text retry failed with status ${retry.status}`);
-  const retryData = await retry.json();
-  const retryRaw = typeof retryData?.choices?.[0]?.message?.content === "string" ? retryData.choices[0].message.content : "";
-  console.log("[ai] (pollinations/text) retry finish:", retryData?.choices?.[0]?.finish_reason, "| raw:", retryRaw.slice(0, 300));
-  return parseAIResponse(retryRaw);
+  // HTTP 200 but the body is empty/unparseable — surface it as a REAL error
+  // instead of a silent undefined. The caller turns it into aiError, so the
+  // UI explains why analysis is missing instead of showing an unexplained
+  // empty section.
+  console.error("[ai] (pollinations/text) HTTP 200 but analysis is unparseable/empty");
+  throw new Error("AI returned an unparseable or empty response");
 }
 
 export function buildAIContext(contract: Contract, subgraphs: SubgraphAnalysis[], abiFunctions?: ABIFunction[]) {
@@ -191,14 +194,13 @@ export function buildPrompt(context: { contract: string; subgraphs: unknown[]; a
     ? abiFunctions
         .slice(0, 40)
         .map((fn) => {
-          const params = fn.inputs.length ? `(${fn.inputs.map((i) => i.name || "_").join(", ")})` : "()";
           return `    - ${fn.name}${fn.stateMutability ? ` [${fn.stateMutability}]` : ""}`;
         })
         .join("\n")
     : "    (no ABI could be fetched for this contract)";
 
   const sectionIndex = (label: string, desc: string) => `[${label}] ${desc}`;
-  const schemaSection = sectionIndex("SCHEMA", "Return ONLY this JSON object: whatIsIt, story, parable, riskyBusiness.");
+  const schemaSection = sectionIndex("SCHEMA", "Return ONLY this JSON object: whatIsIt, story, parable, riskyBusiness, visualScene, visualStyle.");
   const dataSection = sectionIndex("DATA", "Use ONLY this data for this contract. Do not invent beyond it.");
 
   return `${schemaSection}
@@ -211,12 +213,13 @@ ${subgraphStrings}
 ${abiBlock}
 
 RULES (ground truth):
-- Use ONLY this contract data. Do not compare to other contracts, name other tokens, or import outside knowledge.
+- No outside knowledge: mention no other tokens, chains, or projects beyond the provided data.
 - "abi:" labels are subgraph author interface names; generic neutral labels are fine.
 - Decide ONE identity from THIS contract ABI motions + entities + data sources. If unsure, describe the strongest supported motion literally.
 - Subgraph ABI may be incomplete; rely more on entities/data sources provided.
 - Risks: count motions from THIS contract data that restrict, modify, upgrade, pause, transfer control, change parameters, blacklist, or alter state in non-routine ways; treat administrative/privileged actions and emergency controls as risks.
 - If data is sparse, say so plainly and still return valid JSON for all sections.
+- Fresh random roll every generation: no fixed templates, no repeated openings, no echoing instruction phrases.
 
 
 OUTPUT as JSON only (no markdown).
@@ -227,6 +230,7 @@ Each section must contain COMPLETELY DIFFERENT information. Before outputting, v
 - No phrase from story appears in whatIsIt/parable/riskyBusiness  
 - No phrase from parable appears in whatIsIt/story/riskyBusiness
 - No phrase from riskyBusiness appears in whatIsIt/story/parable
+- visualScene/visualStyle are the same world seen visually: restate it in fresh words, never quote or copy sentences from other sections.
 
 SECTION DEFINITIONS — each has ONE specific purpose:
 
@@ -238,6 +242,7 @@ SECTION DEFINITIONS — each has ONE specific purpose:
 2. "story" (FANTASY, 4-6 sentences, <160 words):
    - PURPOSE: Paint a picture of the contract's WORLD and daily life
    - INCLUDE: atmosphere, environment, how people interact, busy/quiet nature, fame level
+   - Randomly roll a NARRATIVE STYLE (diary, tavern tale, lullaby, chronicle, field report, letter...) and a MOOD; vary them each time. Tell the story THROUGH the ENTITY that [Creative direction] picks, giving the entity PARTS and ACTIONS that mirror THIS contract's specific functions, whatever they are (transfer, freeze, vote, burn, role change, upgrade...). Vary the opening sentence: begin with an action, a sound, a character, a place, or an object — never a fixed phrase, never the same three opening words twice.
    - DO NOT: state what the contract is, mention risks, give wisdom
 
 3. "parable" (FABLE, 1-2 sentences):
@@ -250,11 +255,27 @@ SECTION DEFINITIONS — each has ONE specific purpose:
    - ONLY include: risks actually present in THIS contract's ABI (pause, blacklist, upgrade, mint, etc.)
    - DO NOT: describe general usage, repeat other sections
 
+5. "visualScene" (VISION, 2-3 sentences, <=60 words):
+   - PURPOSE: The visual realization OF YOUR OWN TALE: one coherent picture of the exact scene your "story" section describes.
+   - HOW (derived from the TALE):
+     1) Reuse the SAME entity, SAME place, SAME mood, and the SAME key objects as in your story.
+     2) Render that tale as one image: describe composition, light, palette, and the entity's pose/action as a frozen story frame; each real contract function shown in the story stays visible and recognizable.
+     3) STYLE & MOOD come straight from the tale's mood and setting (mechanical, organic, or ephemeral).
+   - REQUIREMENTS: NO text in the scene: no letters, digits, words, UI, code, or hashes.
+   - DO NOT: describe the contract in prose, list risks, or give wisdom.
+
+6. "visualStyle" (STYLE, <=15 words):
+   - PURPOSE: The art direction for the scene.
+   - HOW: Invent an unusual technique mixing FANTASY with DIGITAL/CYBERPUNK and MECHANICAL aesthetics (mysterious mechanisms, glowing circuitry, holograms, gears) plus a 2-3 color palette that fits the rolled mood; vary it on each generation.
+   - DO NOT: describe the scene itself or repeat other sections.
+
 {
   "whatIsIt": "",
   "story": "",
   "parable": "",
-  "riskyBusiness": ""
+  "riskyBusiness": "",
+  "visualScene": "",
+  "visualStyle": ""
 }`;
 }
 
@@ -270,6 +291,8 @@ function parseAIResponse(str: string): AIAnalysis | undefined {
     story: String((parsed as Record<string, unknown>).story || ""),
     parable: String((parsed as Record<string, unknown>).parable || ""),
     riskyBusiness: String(parsed.riskyBusiness || ""),
+    visualScene: String((parsed as Record<string, unknown>).visualScene || ""),
+    visualStyle: String((parsed as Record<string, unknown>).visualStyle || ""),
     concepts: Array.isArray(parsed.concepts)
       ? parsed.concepts
           .map((c: Record<string, unknown>) => {

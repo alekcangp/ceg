@@ -63,17 +63,15 @@ This project is configured for one-click deployment to Vercel:
 - **AI (image)**: Pollinations `POST /v1/images/generations` (OpenAI-compatible)
 - **Data sources**: The Graph decentralized network, IPFS
 
-## Environment Variables
+## Configuration
+
+All tunables (AI models, gateways, The Graph network subgraph id, limits) live in **[`src/config.ts`](src/config.ts)** 
+
 
 | Variable | Required | Description |
 |---|---|---|
 | `THEGRAPH_API_KEY` | Yes | [Get API key](https://thegraph.com/en/) |
-| `GRAPH_NETWORK_SUBGRAPH_ID` | No | Default: `QmdKXcBUHR3UyURqVRQHu1oV6VUkBrhi2vNvMx3bNDnUCc` |
 | `POLLINATIONS_API_KEY` | No | [Get API key](https://enter.pollinations.ai/keys) — enables AI analysis & image generation |
-| `POLLINATIONS_MODEL` | No | **Text** model — required for AI analysis (e.g. `openai/gpt-5.4-nano`). [Full list](https://gen.pollinations.ai/v1/models) |
-| `POLLINATIONS_MODEL_IMAGE` | No | **Image** model — required for illustrations (e.g. `black-forest-labs/flux.1-schnell`). [Full list](https://gen.pollinations.ai/image/models) |
-| `IPFS_GATEWAY_URL` | No | IPFS gateway URL (default: `https://ipfs.thegraph.com/ipfs`) |
-| `TOP_SUBGRAPHS` | No | Top N subgraphs by signal + top N by query fees (default: `5`) |
 
 > **Note**: AI analysis is optional. If Pollinations API key or model is not configured, the app still performs full subgraph discovery, manifest/schema parsing, and graph visualization — just without AI interpretation.
 

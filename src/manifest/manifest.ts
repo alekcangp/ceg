@@ -1,7 +1,8 @@
 import { parse as parseYaml } from "yaml";
 import type { SubgraphDiscovery, SubgraphAnalysis, DataSource, Entity, Field, ABIFunction } from "../../shared/types.js";
+import { IPFS_GATEWAY_URL } from "../config.js";
 
-const IPFS_GATEWAY = (process.env.IPFS_GATEWAY_URL || "https://ipfs.thegraph.com/ipfs").replace(/\/$/, "");
+const IPFS_GATEWAY = IPFS_GATEWAY_URL;
 
 /**
  * Analyze a single subgraph: parse inline manifestText if present
@@ -417,7 +418,7 @@ export async function fetchABIFunctions(
   const result: ABIFunction[] = [];
   if (signatureSet.size === 0) {
     // Fallback: single ABI file (or no corroboration) -> keep everything
-    for (const [sig, fn] of sigToFunction) result.push(fn);
+    for (const fn of sigToFunction.values()) result.push(fn);
   } else {
     for (const sig of signatureSet) {
       const fn = sigToFunction.get(sig);

@@ -1,7 +1,6 @@
 import type { AnalysisResult, Contract, SubgraphAnalysis } from "../shared/types.js";
 import { discoverSubgraphs, rankSubgraphs } from "../src/discovery/discovery.js";
 import { analyzeSubgraph } from "../src/manifest/manifest.js";
-import { deduplicateConcepts } from "../src/normalization/normalization.js";
 import { buildAIContext, callAI, debugPrompt } from "../src/ai/ai.js";
 import { fetchABIFunctions } from "../src/manifest/manifest.js";
 import { buildGraph } from "../src/graph/builder.js";
@@ -144,11 +143,7 @@ async function runAnalysis(address: string): Promise<AnalysisResult> {
   })));
   for (const a of analyzedList) errors.push(...a.errors);
 
-  // Step 4: Deduplicate and build semantic layer
-  const concepts = deduplicateConcepts(analyzedList);
-  log("concepts:done", { count: concepts.length });
-
-  // Step 5: Build AI context (incl. merged/common ABI from subgraph manifests) and call AI.
+  // Step 4: Build AI context (incl. merged/common ABI from subgraph manifests) and call AI.
   // Collect ABI from ALL subgraphs — different subgraphs may have different (incomplete)
   // ABI references for the same contract. fetchABIFunctions deduplicates by file hash
   // and fetches in parallel for speed.
@@ -162,22 +157,27 @@ async function runAnalysis(address: string): Promise<AnalysisResult> {
   log("ai:prompt", { chars: prompt.length });
   console.log("[analyze] AI prompt >>>\n" + prompt + "\n<<< AI prompt");
 
+  // aiError stays undefined while AI works — even without an API key
+  // (the public Pollinations tier needs none). It is set ONLY on a real
+  // failure, so the UI never shows an error next to a successful analysis.
   let aiError: string | undefined;
-  if (!process.env.POLLINATIONS_API_KEY) {
-    aiError = "AI is not configured: set POLLINATIONS_API_KEY in the environment.";
-  }
   const aiAnalysis = await callAI(aiContext).catch((e) => {
     const msg = e instanceof Error ? e.message : String(e);
     log("ai:failed", msg);
     aiError = "AI request failed — " + msg;
     return undefined;
   });
+  // Defensive: callAI can only return undefined when the text model is not
+  // configured — never leave that silent either.
+  if (!aiAnalysis && !aiError) {
+    aiError = "AI analysis is not configured: set POLLINATIONS_MODEL.";
+  }
   log("ai:done", { hasSummary: Boolean(aiAnalysis?.story || aiAnalysis?.whatIsIt), aiError });
 
   // No hardcoded fallback: everything user-facing comes from generation.
   // If the AI call fails, aiAnalysis stays undefined and the REAL error text
   // travels to the UI via aiError (no fake "owl is napping" content).
-  const { nodes, edges } = buildGraph(contract, analyzedList, concepts, aiAnalysis);
+  const { nodes, edges } = buildGraph(contract, analyzedList);
   log("graph:done", { nodes: nodes.length, edges: edges.length });
 
   return {
@@ -206,7 +206,6 @@ async function runAnalysis(address: string): Promise<AnalysisResult> {
           }
         : undefined,
     })),
-    concepts: concepts.slice(0, 5).map((c) => ({ concept: c.concept, confidence: c.confidence, evidence: c.evidence.slice(0, 2) })),
     aiAnalysis,
     aiError,
     nodes,
@@ -255,7 +254,6 @@ function emptyResult(
   return {
     contract,
     subgraphs: [],
-    concepts: [],
     nodes: [{ id: contract.address, type: "contract", label: contract.address.slice(0, 8) + "…" }],
     edges: [],
     errors,

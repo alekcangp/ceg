@@ -1,10 +1,9 @@
 import type { SubgraphDiscovery } from "../../shared/types.js";
-import { TOP_SUBGRAPHS } from "../config.js";
+import { TOP_SUBGRAPHS, THEGRAPH_GATEWAY_URL, THEGRAPH_API_KEY, GRAPH_NETWORK_SUBGRAPH_ID } from "../config.js";
 
-const GATEWAY = process.env.THEGRAPH_GATEWAY_URL || "https://gateway.thegraph.com/api";
-const API_KEY = process.env.THEGRAPH_API_KEY || "";
-const NETWORK_ID =
-  process.env.GRAPH_NETWORK_SUBGRAPH_ID || "QmdKXcBUHR3UyURqVRQHu1oV6VUkBrhi2vNvMx3bNDnUCc";
+const GATEWAY = THEGRAPH_GATEWAY_URL;
+const API_KEY = THEGRAPH_API_KEY;
+const NETWORK_ID = GRAPH_NETWORK_SUBGRAPH_ID;
 
 /**
  * Discover subgraph deployments indexing a contract address.

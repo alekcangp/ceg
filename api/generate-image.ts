@@ -1,8 +1,5 @@
 import type { VercelRequest, VercelResponse } from "./vercel-types.js";
-
-const POLLINATIONS_API_KEY = process.env.POLLINATIONS_API_KEY ?? "";
-const POLLINATIONS_BASE_URL = (process.env.POLLINATIONS_BASE_URL ?? "https://gen.pollinations.ai").replace(/\/$/, "");
-const POLLINATIONS_MODEL_IMAGE = process.env.POLLINATIONS_MODEL_IMAGE ?? "";
+import { POLLINATIONS_API_KEY, POLLINATIONS_BASE_URL, POLLINATIONS_MODEL_IMAGE } from "../src/config.js";
 
 export const config = { maxDuration: 30 };
 
@@ -69,9 +66,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(502).json({ error: "Image generation returned no data" });
     }
 
-    // Return as base64 data URL for direct embedding
+    // Return as base64 data URL for direct embedding. Pollinations returns
+    // JPEG bytes for some models (e.g. flux) despite the images endpoint,
+    // so detect the actual format from magic bytes instead of assuming PNG.
     const base64 = imageData.b64_json;
-    const dataUrl = `data:image/png;base64,${base64}`;
+    const buf = Buffer.from(base64, "base64");
+    const ascii = (from: number, to: number) => buf.subarray(from, to).toString("latin1");
+    const mime =
+      buf[0] === 0xff && buf[1] === 0xd8 ? "image/jpeg"
+      : buf[0] === 0x89 && buf[1] === 0x50 ? "image/png"
+      : ascii(0, 3) === "GIF" ? "image/gif"
+      : ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP" ? "image/webp"
+      : "image/png";
+    const dataUrl = `data:${mime};base64,${base64}`;
 
     return res.status(200).json({
       imageUrl: dataUrl,
