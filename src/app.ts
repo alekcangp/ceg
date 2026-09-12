@@ -239,10 +239,7 @@ function showResults(result: AnalysisResult) {
   // Fantasy image generation - only when AI story is available
   if (result.aiAnalysis?.story) {
     const aiSection = document.getElementById("ai-section")!;
-    const contractTitle = result.aiAnalysis?.whatIsIt
-      ? `🎨 ${result.aiAnalysis.whatIsIt}`
-      : `🎨 Enchanted illustration of ${result.contract.address.slice(0, 10)}…`;
-    renderFantasyImage(aiSection, result.aiAnalysis.story, result.contract.address, contractTitle);
+    renderFantasyImage(aiSection, result.aiAnalysis.story, result.contract.address);
   }
 
   // Sources
@@ -403,16 +400,10 @@ function renderAI(result: AnalysisResult) {
 async function renderFantasyImage(
   section: HTMLElement,
   story: string,
-  address: string,
-  contractTitle?: string
+  address: string
 ): Promise<void> {
   const container = document.createElement("div");
   container.className = "ai-image-container";
-
-  const title = document.createElement("div");
-  title.className = "ai-block-title";
-  title.textContent = contractTitle || "🎨 Enchanted illustration of the contract realm";
-  container.appendChild(title);
 
   const imgWrapper = document.createElement("div");
   imgWrapper.className = "ai-image-wrapper";
