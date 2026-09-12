@@ -452,22 +452,23 @@ async function renderFantasyImage(
 
 /**
  * Build a fantasy-style image prompt from the story text.
+ * Uses bright, colorful style for vibrant results.
  */
 function buildFantasyPrompt(story: string): string {
-  return `Fantasy digital art illustration: ${story}. Style: enchanted fairy-tale, magical glowing colors, whimsical forest atmosphere, storybook illustration, vibrant fantasy art, detailed magical realm, ethereal lighting, mystical creatures, ornate fantasy borders.`;
+  return `Bright colorful fantasy illustration: ${story}. Vibrant rainbow colors, glowing neon lights, magical sparkles, luminous atmosphere, vivid purple blue gold pink, enchanted fairy tale, storybook art style, high contrast, bright and cheerful, detailed magical realm, mystical creatures, luminous fireflies, glowing orbs.`;
 }
 
 /**
  * Derive a deterministic numeric seed from a contract address.
  */
-function seedFromAddress(address: string): number {
+function seedFromAddress(address: string): string {
   const hex = address.toLowerCase().replace(/^0x/, "").replace(/[^0-9a-f]/g, "");
   let hash = 0x811c9dc5;
   for (let i = 0; i < hex.length; i++) {
     hash ^= hex.charCodeAt(i);
     hash = Math.imul(hash, 0x01000193);
   }
-  return hash >>> 0;
+  return (hash >>> 0).toString();
 }
 
 // Alias for consistency with existing code
