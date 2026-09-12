@@ -239,7 +239,13 @@ function showResults(result: AnalysisResult) {
   // Fantasy image generation - only when AI story is available
   if (result.aiAnalysis?.story) {
     const aiSection = document.getElementById("ai-section")!;
-    renderFantasyImage(aiSection, result.aiAnalysis.story, result.contract.address);
+    renderFantasyImage(
+      aiSection,
+      result.aiAnalysis.story,
+      result.contract.address,
+      result.aiAnalysis.whatIsIt,
+      result
+    );
   }
 
   // Sources
@@ -400,7 +406,9 @@ function renderAI(result: AnalysisResult) {
 async function renderFantasyImage(
   section: HTMLElement,
   story: string,
-  address: string
+  address: string,
+  whatIsIt?: string,
+  result?: AnalysisResult
 ): Promise<void> {
   const container = document.createElement("div");
   container.className = "ai-image-container";
@@ -423,8 +431,8 @@ async function renderFantasyImage(
   container.appendChild(imgWrapper);
   section.appendChild(container);
 
-  // Build fantasy prompt from story text
-  const fantasyPrompt = buildFantasyPrompt(story);
+  // Build unique fantasy prompt with contract-specific details
+  const fantasyPrompt = buildFantasyPrompt(story, address, whatIsIt, result);
   // Deterministic seed from address for consistent results
   const seed = addressToSeed(address);
 
@@ -440,7 +448,7 @@ async function renderFantasyImage(
       throw new Error((errData as any).error || `HTTP ${resp.status}`);
     }
 
-    const data = (await resp.json()) as { imageUrl: string; seed: number; model: string };
+    const data = (await resp.json()) as { imageUrl: string; seed: string; model: string };
 
     img.src = data.imageUrl;
     img.classList.remove("hidden");
@@ -451,11 +459,51 @@ async function renderFantasyImage(
 }
 
 /**
- * Build a fantasy-style image prompt from the story text.
- * Uses bright, colorful style for vibrant results.
+ * Build a unique fantasy-style image prompt with contract-specific details.
+ * Each contract gets a distinct visual based on its unique properties.
  */
-function buildFantasyPrompt(story: string): string {
-  return `Bright colorful fantasy illustration: ${story}. Vibrant rainbow colors, glowing neon lights, magical sparkles, luminous atmosphere, vivid purple blue gold pink, enchanted fairy tale, storybook art style, high contrast, bright and cheerful, detailed magical realm, mystical creatures, luminous fireflies, glowing orbs.`;
+function buildFantasyPrompt(
+  story: string,
+  address: string,
+  whatIsIt?: string,
+  result?: AnalysisResult
+): string {
+  // Extract unique visual elements from contract data
+  const networks = result?.subgraphs
+    .map((s) => s.discovery.network)
+    .filter((n): n is string => Boolean(n));
+  const uniqueNetworks = [...new Set(networks)];
+  
+  // Get entity types for visual variety
+  const entityTypes = result?.subgraphs
+    .flatMap((s) => s.schema?.entities.map((e) => e.name) || [])
+    .filter(Boolean)
+    .slice(0, 3);
+  
+  // Generate unique visual theme based on address hash
+  const addressHash = parseInt(address.slice(2, 10), 16);
+  const visualThemes = [
+    { colors: "vivid purple magenta gold", scene: "crystal caves with glowing crystals" },
+    { colors: "bright cyan blue silver", scene: "frozen waterfall with ice spirits" },
+    { colors: "warm orange red yellow", scene: "volcanic forge with fire elementals" },
+    { colors: "deep green emerald teal", scene: "ancient forest with treant guardians" },
+    { colors: "soft pink lavender white", scene: "cloud kingdom with sky whales" },
+    { colors: "electric blue neon green", scene: "cyberpunk marketplace with holograms" },
+    { colors: "gold bronze copper", scene: "treasury vault with golden dragons" },
+    { colors: "midnight blue silver stars", scene: "celestial observatory with cosmic beings" },
+  ];
+  const theme = visualThemes[addressHash % visualThemes.length];
+  
+  // Build unique prompt with contract-specific details
+  const contractType = whatIsIt?.split(" ").slice(0, 4).join(" ") || "mystical contract";
+  const networkScene = uniqueNetworks.length > 0 
+    ? `spanning ${uniqueNetworks.length} realm${uniqueNetworks.length > 1 ? "s" : ""}`
+    : "in a magical realm";
+  const entityElements = entityTypes && entityTypes.length > 0
+    ? `featuring ${entityTypes.join(", ")}`
+    : "with magical entities";
+  
+  return `Fantasy illustration of a ${contractType} ${networkScene}, ${entityElements}. Scene: ${theme.scene}. Colors: ${theme.colors}. Story: ${story}. Style: detailed storybook art, bright vivid colors, magical atmosphere, glowing lighting, high contrast, whimsical fairy tale, 4K quality, masterpiece.`;
 }
 
 /**
