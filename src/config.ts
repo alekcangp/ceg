@@ -12,7 +12,7 @@ export const POLLINATIONS_BASE_URL = "https://gen.pollinations.ai";
 
 /** TEXT model for contract analysis (POST /v1/chat/completions).
  *  Full list: https://gen.pollinations.ai/v1/models */
-export const POLLINATIONS_MODEL = "amazon/nova-micro-v1"//"openai/gpt-5.4-nano";
+export const POLLINATIONS_MODEL = "openai/gpt-5.4-nano";
 
 /** IMAGE model for fantasy illustrations (POST /v1/images/generations).
  *  Full list: https://gen.pollinations.ai/image/models */
