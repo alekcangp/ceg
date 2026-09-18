@@ -12,11 +12,11 @@ export const POLLINATIONS_BASE_URL = "https://gen.pollinations.ai";
 
 /** TEXT model for contract analysis (POST /v1/chat/completions).
  *  Full list: https://gen.pollinations.ai/v1/models */
-export const POLLINATIONS_MODEL = "openai/gpt-5.4-nano";
+export const POLLINATIONS_MODEL = "amazon/nova-micro-v1"//"openai/gpt-5.4-nano";
 
 /** IMAGE model for fantasy illustrations (POST /v1/images/generations).
  *  Full list: https://gen.pollinations.ai/image/models */
-export const POLLINATIONS_MODEL_IMAGE = "black-forest-labs/flux.1-schnell";
+export const POLLINATIONS_MODEL_IMAGE = "lykon/dreamshaper-8-lcm"//"black-forest-labs/flux.1-schnell";
 
 // ============================================================================
 //  SECTION 2 — The Graph (subgraph discovery)
